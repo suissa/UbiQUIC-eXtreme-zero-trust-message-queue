@@ -1,0 +1,16 @@
+broker:
+  ack_ttl_ms: 500
+  dlq_to_outbox_after_ms: 86400000
+  data_dir: data
+security:
+  mtls_kyber_enabled: true
+  dpop_enabled: true
+subscribers:
+  register_addresses: true
+  endpoints:
+    - id: billing
+      address: quic://127.0.0.1:9001
+    - id: analytics
+      address: quic://127.0.0.1:9002
+    - id: audit
+      address: quic://127.0.0.1:9003
