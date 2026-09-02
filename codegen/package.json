@@ -1,0 +1,11 @@
+{
+  "name": "@h2a2h/universal-adapter-codegen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  }
+}
