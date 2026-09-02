@@ -1,16 +1,129 @@
-broker:
-  ack_ttl_ms: 500
-  dlq_to_outbox_after_ms: 86400000
-  data_dir: data
-security:
-  mtls_kyber_enabled: true
-  dpop_enabled: true
-subscribers:
-  register_addresses: true
-  endpoints:
-    - id: billing
-      address: quic://127.0.0.1:9001
-    - id: analytics
-      address: quic://127.0.0.1:9002
-    - id: audit
-      address: quic://127.0.0.1:9003
+universal_server:
+  name: ubiquic-universal-server
+  host: 0.0.0.0
+  canonical_event_namespace: h2a2h
+  default_adapter: quic
+  strict_capabilities: true
+
+security_profiles:
+  xzt:
+    profile: h2a2h.security.xzt.v1
+    peer_authentication: mtls
+    passwordless: webauthn
+    proof_of_possession: dpop
+    replay_defense: true
+    key_establishment: hybrid-x25519-ml-kem
+    message_integrity: ed25519
+    linear_auto_destroy: true
+    ephemeral_secret_ttl_ms: 30000
+
+adapters:
+  quic:
+    technology: quic
+    enabled: true
+    endpoint:
+      host: 0.0.0.0
+      port: 4433
+    security_profile: xzt
+    semantics:
+      mode: stream
+      reliable: true
+      ordered: true
+      durable: false
+      replay: false
+      acknowledgements: end_to_end
+      canonical_event_preservation: true
+    options:
+      implementation: ubiquic
+
+  nats:
+    technology: nats
+    enabled: true
+    endpoint:
+      host: 127.0.0.1
+      port: 4222
+      subject_prefix: h2a2h
+    security_profile: xzt
+    semantics:
+      mode: pub_sub
+      reliable: true
+      ordered: false
+      durable: false
+      replay: false
+      acknowledgements: consumer
+      canonical_event_preservation: true
+
+  kafka:
+    technology: kafka
+    enabled: false
+    endpoint:
+      host: 127.0.0.1
+      port: 9092
+      topic_prefix: h2a2h
+    security_profile: xzt
+    semantics:
+      mode: log
+      reliable: true
+      ordered: true
+      durable: true
+      replay: true
+      acknowledgements: broker
+      canonical_event_preservation: true
+
+  redpanda:
+    technology: redpanda
+    enabled: false
+    endpoint:
+      host: 127.0.0.1
+      port: 9092
+      topic_prefix: h2a2h
+    security_profile: xzt
+    semantics:
+      mode: log
+      reliable: true
+      ordered: true
+      durable: true
+      replay: true
+      acknowledgements: broker
+      canonical_event_preservation: true
+
+  rabbitmq:
+    technology: rabbitmq
+    enabled: false
+    endpoint:
+      host: 127.0.0.1
+      port: 5672
+      queue_prefix: h2a2h
+    security_profile: xzt
+    semantics:
+      mode: queue
+      reliable: true
+      ordered: false
+      durable: true
+      replay: false
+      acknowledgements: consumer
+      canonical_event_preservation: true
+
+  bullmq:
+    technology: bullmq
+    enabled: false
+    endpoint:
+      host: 127.0.0.1
+      port: 6379
+      queue_prefix: h2a2h
+    security_profile: xzt
+    semantics:
+      mode: queue
+      reliable: true
+      ordered: false
+      durable: true
+      replay: false
+      acknowledgements: consumer
+      canonical_event_preservation: true
+
+mappings:
+  sale_identified:
+    canonical_event: Financial.SellMachine.SaleIdentified
+    strategy: reversible-template
+    template: "{namespace}.{canonical_event}"
+    reversible: true
