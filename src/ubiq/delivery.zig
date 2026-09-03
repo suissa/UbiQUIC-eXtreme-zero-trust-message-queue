@@ -61,7 +61,7 @@ pub fn MemoryBroker(comptime capacity: usize) type {
         pub fn claim(self: *Self, worker: []const u8, now_ms: u64, lease_ms: u64) DeliveryError!usize {
             var i: usize = 0;
             while (i < self.len) : (i += 1) {
-                var record = &self.records[i];
+                const record = &self.records[i];
                 if (record.state == .published or record.state == .expired) {
                     const next_attempt: u32 = if (record.lease) |lease| lease.attempt + 1 else 1;
                     record.state = .leased;
@@ -73,14 +73,14 @@ pub fn MemoryBroker(comptime capacity: usize) type {
         }
 
         pub fn markReceived(self: *Self, index: usize, worker: []const u8) DeliveryError!void {
-            var record = try self.record(index);
+            const record = try self.record(index);
             try requireOwner(record, worker);
             if (record.state != .leased) return error.InvalidTransition;
             record.state = .received;
         }
 
         pub fn settle(self: *Self, index: usize, worker: []const u8, result: event.EventState) DeliveryError!void {
-            var record = try self.record(index);
+            const record = try self.record(index);
             try requireOwner(record, worker);
             if (record.state != .leased and record.state != .received) return error.InvalidTransition;
 
@@ -95,7 +95,7 @@ pub fn MemoryBroker(comptime capacity: usize) type {
         pub fn reapExpired(self: *Self, now_ms: u64) void {
             var i: usize = 0;
             while (i < self.len) : (i += 1) {
-                var record = &self.records[i];
+                const record = &self.records[i];
                 if (record.state == .leased or record.state == .received) {
                     if (record.lease) |lease| {
                         if (!lease.active(now_ms)) record.state = .expired;
