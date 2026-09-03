@@ -61,11 +61,11 @@ pub fn MemoryBroker(comptime capacity: usize) type {
         pub fn claim(self: *Self, worker: []const u8, now_ms: u64, lease_ms: u64) DeliveryError!usize {
             var i: usize = 0;
             while (i < self.len) : (i += 1) {
-                const record = &self.records[i];
-                if (record.state == .published or record.state == .expired) {
-                    const next_attempt: u32 = if (record.lease) |lease| lease.attempt + 1 else 1;
-                    record.state = .leased;
-                    record.lease = .{ .owner = worker, .until_ms = now_ms + lease_ms, .attempt = next_attempt };
+                const entry = &self.records[i];
+                if (entry.state == .published or entry.state == .expired) {
+                    const next_attempt: u32 = if (entry.lease) |lease| lease.attempt + 1 else 1;
+                    entry.state = .leased;
+                    entry.lease = .{ .owner = worker, .until_ms = now_ms + lease_ms, .attempt = next_attempt };
                     return i;
                 }
             }
@@ -73,32 +73,32 @@ pub fn MemoryBroker(comptime capacity: usize) type {
         }
 
         pub fn markReceived(self: *Self, index: usize, worker: []const u8) DeliveryError!void {
-            const record = try self.record(index);
-            try requireOwner(record, worker);
-            if (record.state != .leased) return error.InvalidTransition;
-            record.state = .received;
+            const entry = try self.recordAt(index);
+            try requireOwner(entry, worker);
+            if (entry.state != .leased) return error.InvalidTransition;
+            entry.state = .received;
         }
 
         pub fn settle(self: *Self, index: usize, worker: []const u8, result: event.EventState) DeliveryError!void {
-            const record = try self.record(index);
-            try requireOwner(record, worker);
-            if (record.state != .leased and record.state != .received) return error.InvalidTransition;
+            const entry = try self.recordAt(index);
+            try requireOwner(entry, worker);
+            if (entry.state != .leased and entry.state != .received) return error.InvalidTransition;
 
-            record.state = switch (result) {
+            entry.state = switch (result) {
                 .ok => .settled_ok,
                 .@"error" => .settled_error,
                 .request => return error.InvalidTransition,
             };
-            record.lease = null;
+            entry.lease = null;
         }
 
         pub fn reapExpired(self: *Self, now_ms: u64) void {
             var i: usize = 0;
             while (i < self.len) : (i += 1) {
-                const record = &self.records[i];
-                if (record.state == .leased or record.state == .received) {
-                    if (record.lease) |lease| {
-                        if (!lease.active(now_ms)) record.state = .expired;
+                const entry = &self.records[i];
+                if (entry.state == .leased or entry.state == .received) {
+                    if (entry.lease) |lease| {
+                        if (!lease.active(now_ms)) entry.state = .expired;
                     }
                 }
             }
@@ -109,7 +109,7 @@ pub fn MemoryBroker(comptime capacity: usize) type {
             return &self.records[index];
         }
 
-        fn record(self: *Self, index: usize) DeliveryError!*DeliveryRecord {
+        fn recordAt(self: *Self, index: usize) DeliveryError!*DeliveryRecord {
             if (index >= self.len) return error.InvalidRecord;
             return &self.records[index];
         }
@@ -122,8 +122,8 @@ pub fn MemoryBroker(comptime capacity: usize) type {
             return null;
         }
 
-        fn requireOwner(record: *const DeliveryRecord, worker: []const u8) DeliveryError!void {
-            const lease = record.lease orelse return error.NotLeaseOwner;
+        fn requireOwner(entry: *const DeliveryRecord, worker: []const u8) DeliveryError!void {
+            const lease = entry.lease orelse return error.NotLeaseOwner;
             if (!std.mem.eql(u8, lease.owner, worker)) return error.NotLeaseOwner;
         }
     };
