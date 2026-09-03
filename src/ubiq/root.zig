@@ -12,6 +12,9 @@ pub const tcp_binding = @import("tcp_binding.zig");
 pub const http_binding = @import("http_binding.zig");
 pub const websocket_binding = @import("websocket_binding.zig");
 pub const sse_binding = @import("sse_binding.zig");
+pub const nats_protocol = @import("nats_protocol.zig");
+pub const nats_client = @import("nats_client.zig");
+pub const jetstream = @import("jetstream.zig");
 
 test {
     _ = event;
@@ -28,4 +31,7 @@ test {
     _ = http_binding;
     _ = websocket_binding;
     _ = sse_binding;
+    _ = nats_protocol;
+    _ = nats_client;
+    _ = jetstream;
 }
