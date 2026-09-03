@@ -28,9 +28,6 @@ pub const JetStream = struct {
         return .{ .client = client, .stream_name = stream_name };
     }
 
-    /// Creates/updates the reference stream through the official JetStream API
-    /// subject. Intended for bootstrap/tests; production may provision streams
-    /// independently while using the same binding for data traffic.
     pub fn createStream(
         self: *JetStream,
         subject_filter: []const u8,
@@ -55,8 +52,15 @@ pub const JetStream = struct {
         try self.client.unsubscribeAfter(sid, 1, protocol_buffer);
         try self.client.publishRaw(api_subject, inbox, body, protocol_buffer);
         const response = try self.client.nextRaw(response_buffer, subject_buffer, reply_buffer, protocol_buffer);
-        if (std.mem.indexOf(u8, response.payload, "\"error\"") != null) return error.ApiError;
-        if (std.mem.indexOf(u8, response.payload, "\"stream_create_response\"") == null) return error.ApiError;
+        if (std.mem.indexOf(u8, response.payload, "\"error\"") != null or
+            std.mem.indexOf(u8, response.payload, "\"stream_create_response\"") == null)
+        {
+            std.debug.print(
+                "JetStream unexpected create response: subject={s} reply={s} payload={s}\n",
+                .{ response.subject, response.reply_to, response.payload },
+            );
+            return error.ApiError;
+        }
     }
 
     pub fn publish(
