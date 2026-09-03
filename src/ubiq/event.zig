@@ -3,7 +3,7 @@ const std = @import("std");
 pub const EventState = enum {
     request,
     ok,
-    error,
+    @"error",
 };
 
 pub const Pipeline = enum {
@@ -47,7 +47,7 @@ pub const CanonicalEvent = struct {
         else if (std.mem.eql(u8, state_text, "ok"))
             .ok
         else if (std.mem.eql(u8, state_text, "error"))
-            .error
+            .@"error"
         else
             return error.InvalidState;
 
@@ -58,7 +58,7 @@ pub const CanonicalEvent = struct {
         return switch (self.state) {
             .request => .execution,
             .ok => .consume,
-            .error => .self_healing,
+            .@"error" => .self_healing,
         };
     }
 };
