@@ -34,11 +34,11 @@ pub fn Cluster(comptime max_nodes: usize) type {
         nodes: [max_nodes]Node = undefined,
         len: usize = 0,
 
-        pub fn register(self: *Self, node: Node) ClusterError!usize {
-            if (self.find(node.id) != null) return error.DuplicateNode;
+        pub fn register(self: *Self, new_node: Node) ClusterError!usize {
+            if (self.find(new_node.id) != null) return error.DuplicateNode;
             if (self.len >= max_nodes) return error.ClusterFull;
             const index = self.len;
-            self.nodes[index] = node;
+            self.nodes[index] = new_node;
             self.len += 1;
             return index;
         }
@@ -83,7 +83,7 @@ pub fn Cluster(comptime max_nodes: usize) type {
             return @intCast(hash64(key) % shard_count);
         }
 
-        pub fn node(self: *const Self, index: usize) *const Node {
+        pub fn nodeAt(self: *const Self, index: usize) *const Node {
             return &self.nodes[index];
         }
 
@@ -133,11 +133,11 @@ test "replication is deterministic and excludes unhealthy nodes" {
     try std.testing.expectEqual(first.node_indexes[0], second.node_indexes[0]);
     try std.testing.expectEqual(first.node_indexes[1], second.node_indexes[1]);
 
-    const failed_id = cluster.node(first.node_indexes[0]).id;
+    const failed_id = cluster.nodeAt(first.node_indexes[0]).id;
     try cluster.setHealthy(failed_id, false);
     const failover = try cluster.replicasFor("customer:42", 2);
-    try std.testing.expect(!std.mem.eql(u8, cluster.node(failover.node_indexes[0]).id, failed_id));
-    try std.testing.expect(!std.mem.eql(u8, cluster.node(failover.node_indexes[1]).id, failed_id));
+    try std.testing.expect(!std.mem.eql(u8, cluster.nodeAt(failover.node_indexes[0]).id, failed_id));
+    try std.testing.expect(!std.mem.eql(u8, cluster.nodeAt(failover.node_indexes[1]).id, failed_id));
 }
 
 test "sharding is stable and bounded" {
