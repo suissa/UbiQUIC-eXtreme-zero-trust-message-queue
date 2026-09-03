@@ -4,13 +4,18 @@ const wire = @import("wire.zig");
 const nats = @import("nats_client.zig");
 
 const stream_create_response_type = "io.nats.jetstream.api.v1.stream_create_response";
+const consumer_create_response_type = "io.nats.jetstream.api.v1.consumer_create_response";
+const ack_prefix = "$JS.ACK.";
 
 pub const JetStreamError = error{
     InvalidStreamName,
+    InvalidConsumerName,
     InvalidSubjectFilter,
+    InvalidAckSubject,
     ApiError,
     InvalidApiResponse,
     InvalidPubAck,
+    InvalidPullDelivery,
     WrongStream,
 } || nats.ClientError;
 
@@ -20,6 +25,14 @@ pub const PubAck = struct {
     duplicate: bool,
 };
 
+/// The envelope and ack subject point into caller-owned buffers supplied to
+/// `pullOne`. The JetStream ACK is deliberately not represented as UbiQ
+/// execution settlement.
+pub const PullDelivery = struct {
+    envelope: event.Envelope,
+    ack_subject: []const u8,
+};
+
 /// JetStream is a durable backbone adapter. A successful PubAck means the
 /// server persisted the publication; it never means the business Action ran.
 pub const JetStream = struct {
@@ -27,7 +40,7 @@ pub const JetStream = struct {
     stream_name: []const u8,
 
     pub fn init(client: *nats.Client, stream_name: []const u8) JetStreamError!JetStream {
-        try validateStreamName(stream_name);
+        try validateAssetName(stream_name, error.InvalidStreamName);
         return .{ .client = client, .stream_name = stream_name };
     }
 
@@ -51,11 +64,40 @@ pub const JetStream = struct {
             .{ self.stream_name, subject_filter },
         ) catch return error.InvalidSubjectFilter;
 
-        try self.client.subscribe(inbox, sid, protocol_buffer);
-        try self.client.unsubscribeAfter(sid, 1, protocol_buffer);
-        try self.client.publishRaw(api_subject, inbox, body, protocol_buffer);
-        const response = try self.client.nextRaw(response_buffer, subject_buffer, reply_buffer, protocol_buffer);
-        try validateApiResponseType(response.payload, stream_create_response_type);
+        try self.requestApi(api_subject, inbox, sid, body, response_buffer, subject_buffer, reply_buffer, protocol_buffer, stream_create_response_type);
+    }
+
+    pub fn createDurablePullConsumer(
+        self: *JetStream,
+        consumer_name: []const u8,
+        subject_filter: []const u8,
+        ack_wait_ns: u64,
+        max_deliver: u32,
+        inbox: []const u8,
+        sid: []const u8,
+        response_buffer: []u8,
+        subject_buffer: []u8,
+        reply_buffer: []u8,
+        protocol_buffer: []u8,
+    ) JetStreamError!void {
+        try validateAssetName(consumer_name, error.InvalidConsumerName);
+        try validateSubjectFilter(subject_filter);
+
+        var api_subject_buffer: [384]u8 = undefined;
+        const api_subject = std.fmt.bufPrint(
+            &api_subject_buffer,
+            "$JS.API.CONSUMER.DURABLE.CREATE.{s}.{s}",
+            .{ self.stream_name, consumer_name },
+        ) catch return error.InvalidConsumerName;
+
+        var json_buffer: [1024]u8 = undefined;
+        const body = std.fmt.bufPrint(
+            &json_buffer,
+            "{{\"stream_name\":\"{s}\",\"config\":{{\"durable_name\":\"{s}\",\"name\":\"{s}\",\"deliver_policy\":\"all\",\"ack_policy\":\"explicit\",\"ack_wait\":{d},\"max_deliver\":{d},\"filter_subject\":\"{s}\",\"replay_policy\":\"instant\",\"max_ack_pending\":1}}}}",
+            .{ self.stream_name, consumer_name, consumer_name, ack_wait_ns, max_deliver, subject_filter },
+        ) catch return error.InvalidConsumerName;
+
+        try self.requestApi(api_subject, inbox, sid, body, response_buffer, subject_buffer, reply_buffer, protocol_buffer, consumer_create_response_type);
     }
 
     pub fn publish(
@@ -84,6 +126,72 @@ pub const JetStream = struct {
         const response = try self.client.nextRaw(response_buffer, subject_buffer, reply_buffer, protocol_buffer);
         return parsePubAck(response.payload, self.stream_name);
     }
+
+    /// Pull one durable message. JetStream delivers the original UbiQ wire
+    /// payload on the inbox and places its broker ACK subject in `reply_to`.
+    pub fn pullOne(
+        self: *JetStream,
+        consumer_name: []const u8,
+        expires_ns: u64,
+        inbox: []const u8,
+        sid: []const u8,
+        payload_buffer: []u8,
+        subject_buffer: []u8,
+        ack_subject_buffer: []u8,
+        protocol_buffer: []u8,
+    ) JetStreamError!PullDelivery {
+        try validateAssetName(consumer_name, error.InvalidConsumerName);
+        var api_subject_buffer: [384]u8 = undefined;
+        const api_subject = std.fmt.bufPrint(
+            &api_subject_buffer,
+            "$JS.API.CONSUMER.MSG.NEXT.{s}.{s}",
+            .{ self.stream_name, consumer_name },
+        ) catch return error.InvalidConsumerName;
+        var request_buffer: [128]u8 = undefined;
+        const body = std.fmt.bufPrint(&request_buffer, "{{\"batch\":1,\"expires\":{d}}}", .{expires_ns}) catch return error.InvalidPullDelivery;
+
+        try self.client.subscribe(inbox, sid, protocol_buffer);
+        try self.client.unsubscribeAfter(sid, 1, protocol_buffer);
+        try self.client.publishRaw(api_subject, inbox, body, protocol_buffer);
+        const raw = try self.client.nextRaw(payload_buffer, subject_buffer, ack_subject_buffer, protocol_buffer);
+        if (!std.mem.startsWith(u8, raw.reply_to, ack_prefix)) return error.InvalidAckSubject;
+        const envelope = try wire.decode(raw.payload);
+        return .{ .envelope = envelope, .ack_subject = raw.reply_to };
+    }
+
+    /// Broker-level acknowledgment only. Call this after the UbiQ worker has
+    /// durably recorded its execution settlement when the event requires the
+    /// `processed` guarantee.
+    pub fn ack(self: *JetStream, ack_subject: []const u8, protocol_buffer: []u8) JetStreamError!void {
+        if (!std.mem.startsWith(u8, ack_subject, ack_prefix)) return error.InvalidAckSubject;
+        try self.client.publishRaw(ack_subject, null, "+ACK", protocol_buffer);
+    }
+
+    /// Tells JetStream that processing is still active without claiming UbiQ
+    /// execution success. Useful for Actions longer than the broker ack wait.
+    pub fn working(self: *JetStream, ack_subject: []const u8, protocol_buffer: []u8) JetStreamError!void {
+        if (!std.mem.startsWith(u8, ack_subject, ack_prefix)) return error.InvalidAckSubject;
+        try self.client.publishRaw(ack_subject, null, "+WPI", protocol_buffer);
+    }
+
+    fn requestApi(
+        self: *JetStream,
+        api_subject: []const u8,
+        inbox: []const u8,
+        sid: []const u8,
+        body: []const u8,
+        response_buffer: []u8,
+        subject_buffer: []u8,
+        reply_buffer: []u8,
+        protocol_buffer: []u8,
+        expected_response_type: []const u8,
+    ) JetStreamError!void {
+        try self.client.subscribe(inbox, sid, protocol_buffer);
+        try self.client.unsubscribeAfter(sid, 1, protocol_buffer);
+        try self.client.publishRaw(api_subject, inbox, body, protocol_buffer);
+        const response = try self.client.nextRaw(response_buffer, subject_buffer, reply_buffer, protocol_buffer);
+        try validateApiResponseType(response.payload, expected_response_type);
+    }
 };
 
 pub fn parsePubAck(payload: []const u8, expected_stream: []const u8) JetStreamError!PubAck {
@@ -105,10 +213,10 @@ fn hasApiError(payload: []const u8) bool {
     return std.mem.indexOf(u8, payload, "\"error\":") != null;
 }
 
-fn validateStreamName(name: []const u8) JetStreamError!void {
-    if (name.len == 0 or name.len > 128) return error.InvalidStreamName;
+fn validateAssetName(name: []const u8, comptime invalid_error: anyerror) JetStreamError!void {
+    if (name.len == 0 or name.len > 128) return invalid_error;
     for (name) |byte| {
-        if (!(std.ascii.isAlphanumeric(byte) or byte == '_' or byte == '-')) return error.InvalidStreamName;
+        if (!(std.ascii.isAlphanumeric(byte) or byte == '_' or byte == '-')) return invalid_error;
     }
 }
 
