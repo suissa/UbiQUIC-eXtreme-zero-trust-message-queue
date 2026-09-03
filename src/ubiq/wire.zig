@@ -3,7 +3,7 @@ const event = @import("event.zig");
 
 pub const magic: u32 = 0x55424951; // UBIQ
 pub const version: u16 = 1;
-const fixed_header_len: usize = 44;
+const fixed_header_len: usize = 40;
 
 pub const WireError = error{
     BufferTooSmall,
@@ -61,9 +61,19 @@ pub fn decode(frame: []const u8) WireError!event.Envelope {
     if (takeInt(u32, frame, &cursor) != magic) return error.InvalidMagic;
     if (takeInt(u16, frame, &cursor) != version) return error.UnsupportedVersion;
 
-    const encoded_state = std.meta.intToEnum(event.EventState, frame[cursor]) catch return error.InvalidState;
+    const encoded_state: event.EventState = switch (frame[cursor]) {
+        0 => .request,
+        1 => .ok,
+        2 => .@"error",
+        else => return error.InvalidState,
+    };
     cursor += 1;
-    const guarantee = std.meta.intToEnum(event.DeliveryGuarantee, frame[cursor]) catch return error.InvalidFrame;
+    const guarantee: event.DeliveryGuarantee = switch (frame[cursor]) {
+        0 => .best_effort,
+        1 => .received,
+        2 => .processed,
+        else => return error.InvalidFrame,
+    };
     cursor += 1;
     const created_at_ms = takeInt(u64, frame, &cursor);
 
