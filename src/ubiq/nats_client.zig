@@ -10,7 +10,7 @@ pub const ClientError = error{
     PayloadTooLarge,
     ReplySubjectTooLarge,
     SubjectTooLarge,
-    UnexpectedHeaders,
+    InvalidTrailer,
 } || protocol.ProtocolError || wire.WireError || std.Io.Reader.Error || std.Io.Writer.Error;
 
 pub const RawMessage = struct {
@@ -145,8 +145,8 @@ pub const Client = struct {
     ) ClientError!RawMessage {
         const payload_len = try protocol.payloadLength(operation);
         if (payload_len > payload_buffer.len) return error.PayloadTooLarge;
-        const subject = try copyBounded(subject_buffer, operation.subject, error.SubjectTooLarge);
-        const reply = try copyBounded(reply_buffer, operation.reply_to, error.ReplySubjectTooLarge);
+        const subject = try copySubject(subject_buffer, operation.subject);
+        const reply = try copyReply(reply_buffer, operation.reply_to);
         try self.reader.readSliceAll(payload_buffer[0..payload_len]);
         try consumeCrlf(self.reader);
         return .{ .subject = subject, .reply_to = reply, .payload = payload_buffer[0..payload_len] };
@@ -163,8 +163,8 @@ pub const Client = struct {
         if (lengths.total < lengths.header) return error.InvalidMessage;
         const payload_len = lengths.total - lengths.header;
         if (lengths.total > payload_buffer.len) return error.PayloadTooLarge;
-        const subject = try copyBounded(subject_buffer, operation.subject, error.SubjectTooLarge);
-        const reply = try copyBounded(reply_buffer, operation.reply_to, error.ReplySubjectTooLarge);
+        const subject = try copySubject(subject_buffer, operation.subject);
+        const reply = try copyReply(reply_buffer, operation.reply_to);
         try self.reader.readSliceAll(payload_buffer[0..lengths.total]);
         try consumeCrlf(self.reader);
         return .{
@@ -181,14 +181,20 @@ pub const Client = struct {
     }
 };
 
-fn consumeCrlf(reader: *std.Io.Reader) std.Io.Reader.Error!void {
+fn consumeCrlf(reader: *std.Io.Reader) ClientError!void {
     var trailer: [2]u8 = undefined;
     try reader.readSliceAll(&trailer);
-    if (!std.mem.eql(u8, &trailer, "\r\n")) return error.ReadFailed;
+    if (!std.mem.eql(u8, &trailer, "\r\n")) return error.InvalidTrailer;
 }
 
-fn copyBounded(out: []u8, value: []const u8, comptime too_large: anyerror) ![]const u8 {
-    if (value.len > out.len) return too_large;
+fn copySubject(out: []u8, value: []const u8) ClientError![]const u8 {
+    if (value.len > out.len) return error.SubjectTooLarge;
+    @memcpy(out[0..value.len], value);
+    return out[0..value.len];
+}
+
+fn copyReply(out: []u8, value: []const u8) ClientError![]const u8 {
+    if (value.len > out.len) return error.ReplySubjectTooLarge;
     @memcpy(out[0..value.len], value);
     return out[0..value.len];
 }
