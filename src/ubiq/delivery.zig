@@ -86,7 +86,7 @@ pub fn MemoryBroker(comptime capacity: usize) type {
 
             record.state = switch (result) {
                 .ok => .settled_ok,
-                .error => .settled_error,
+                .@"error" => .settled_error,
                 .request => return error.InvalidTransition,
             };
             record.lease = null;
