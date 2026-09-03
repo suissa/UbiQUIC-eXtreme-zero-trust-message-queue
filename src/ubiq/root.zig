@@ -5,6 +5,7 @@ pub const security = @import("security.zig");
 pub const mapping = @import("mapping.zig");
 pub const runtime = @import("runtime.zig");
 pub const cluster = @import("cluster.zig");
+pub const lock = @import("lock.zig");
 
 test {
     _ = event;
@@ -14,4 +15,5 @@ test {
     _ = mapping;
     _ = runtime;
     _ = cluster;
+    _ = lock;
 }
