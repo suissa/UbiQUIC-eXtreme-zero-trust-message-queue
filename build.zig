@@ -31,4 +31,22 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run UbiQ semantic runtime tests");
     test_step.dependOn(&run_tests.step);
+
+    const ubiq_module = b.createModule(.{
+        .root_source_file = b.path("src/ubiq/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const nats_integration_exe = b.addExecutable(.{
+        .name = "ubiq-nats-integration",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/integration/nats_jetstream.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "ubiq", .module = ubiq_module }},
+        }),
+    });
+    const nats_integration_run = b.addRunArtifact(nats_integration_exe);
+    const nats_integration_step = b.step("nats-integration", "Run live NATS Core and JetStream integration test");
+    nats_integration_step.dependOn(&nats_integration_run.step);
 }

@@ -26,3 +26,19 @@ jobs:
         run: zig build test
       - name: Run semantic demo
         run: zig build run
+      - name: Start NATS JetStream
+        run: |
+          docker run -d --name ubiq-nats -p 4222:4222 nats:2.14.5-alpine -js
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 4222; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs ubiq-nats
+          exit 1
+      - name: NATS Core + JetStream integration
+        run: zig build nats-integration
+      - name: NATS logs on failure
+        if: failure()
+        run: docker logs ubiq-nats || true
