@@ -1,0 +1,97 @@
+const std = @import("std");
+const event = @import("../ubiq/event.zig");
+const nats = @import("../ubiq/nats_client.zig");
+const jetstream = @import("../ubiq/jetstream.zig");
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 4222);
+    const stream = try address.connect(io, .{ .mode = .stream, .protocol = .tcp });
+    defer stream.close(io);
+
+    var read_buffer: [16 * 1024]u8 = undefined;
+    var write_buffer: [16 * 1024]u8 = undefined;
+    var stream_reader = stream.reader(io, &read_buffer);
+    var stream_writer = stream.writer(io, &write_buffer);
+    var client = nats.Client.init(&stream_reader.interface, &stream_writer.interface);
+
+    var protocol_buffer: [32 * 1024]u8 = undefined;
+    try client.handshake("ubiq-zig-integration", &protocol_buffer);
+
+    // NATS Core: canonical event identity survives publish/subscribe exactly.
+    const core_event = event.Envelope{
+        .id = "evt-core-1",
+        .event = try event.CanonicalEvent.parse("Financial.corePing.ok"),
+        .correlation_id = "corr-core-1",
+        .causation_id = "cause-core-1",
+        .idempotency_key = "idem-core-1",
+        .schema_id = "Financial.corePing.ok@1",
+        .payload = "{\"core\":true}",
+        .guarantee = .received,
+        .created_at_ms = 1,
+    };
+    try client.subscribe(core_event.event.name, "1", &protocol_buffer);
+    var wire_buffer: [4096]u8 = undefined;
+    try client.publishEnvelope(core_event, &wire_buffer, &protocol_buffer);
+
+    var message_buffer: [8192]u8 = undefined;
+    var subject_buffer: [512]u8 = undefined;
+    var reply_buffer: [512]u8 = undefined;
+    const core_received = try client.nextEnvelope(&message_buffer, &subject_buffer, &reply_buffer, &protocol_buffer);
+    if (!std.mem.eql(u8, core_received.event.name, core_event.event.name)) return error.CanonicalIdentityChanged;
+    if (!std.mem.eql(u8, core_received.payload, core_event.payload)) return error.PayloadChanged;
+
+    // JetStream: stream bootstrap + persistent publish acknowledgement.
+    var js = try jetstream.JetStream.init(&client, "UBIQ_EVENTS");
+    try js.createStream(
+        "Financial.>",
+        "_INBOX.UBIQ.CREATE",
+        "2",
+        &message_buffer,
+        &subject_buffer,
+        &reply_buffer,
+        &protocol_buffer,
+    );
+
+    const durable_event = event.Envelope{
+        .id = "evt-js-1",
+        .event = try event.CanonicalEvent.parse("Financial.createInvoice.ok"),
+        .correlation_id = "corr-js-1",
+        .causation_id = "cause-js-1",
+        .idempotency_key = "idem-js-stable-1",
+        .schema_id = "Financial.createInvoice.ok@1",
+        .payload = "{\"invoice_id\":\"INV-1\"}",
+        .guarantee = .processed,
+        .created_at_ms = 2,
+    };
+
+    const first_ack = try js.publish(
+        durable_event,
+        "_INBOX.UBIQ.PUB1",
+        "3",
+        &wire_buffer,
+        &message_buffer,
+        &subject_buffer,
+        &reply_buffer,
+        &protocol_buffer,
+    );
+    if (first_ack.duplicate) return error.UnexpectedDuplicate;
+
+    const duplicate_ack = try js.publish(
+        durable_event,
+        "_INBOX.UBIQ.PUB2",
+        "4",
+        &wire_buffer,
+        &message_buffer,
+        &subject_buffer,
+        &reply_buffer,
+        &protocol_buffer,
+    );
+    if (!duplicate_ack.duplicate) return error.DeduplicationFailed;
+    if (first_ack.sequence != duplicate_ack.sequence) return error.DuplicateSequenceChanged;
+
+    std.debug.print(
+        "UbiQ NATS integration: core={s} stream={s} seq={d} duplicate={any}\n",
+        .{ core_received.event.name, first_ack.stream, first_ack.sequence, duplicate_ack.duplicate },
+    );
+}
