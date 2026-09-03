@@ -9,10 +9,13 @@ pub const SseError = error{
 /// SSE is an egress projection only. Canonical event identity is carried in
 /// the `event:` field and the raw payload is emitted as one `data:` line.
 pub fn encode(envelope: event.Envelope, out: []u8) SseError![]const u8 {
-    if (std.mem.indexOfScalar(u8, envelope.payload, '\n') != null or std.mem.indexOfScalar(u8, envelope.payload, '\r') != null) {
+    if (std.mem.indexOfScalar(u8, envelope.payload, '\n') != null or
+        std.mem.indexOfScalar(u8, envelope.payload, '\r') != null)
+    {
         return error.InvalidPayload;
     }
-    return std.fmt.bufPrint(out,
+    return std.fmt.bufPrint(
+        out,
         "id: {s}\nevent: {s}\ndata: {s}\n\n",
         .{ envelope.id, envelope.event.name, envelope.payload },
     ) catch error.BufferTooSmall;
