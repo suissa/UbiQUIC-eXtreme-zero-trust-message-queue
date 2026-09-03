@@ -16,6 +16,7 @@ pub fn main(init: std.process.Init) !void {
     var protocol_buffer: [32 * 1024]u8 = undefined;
     try client.handshake("ubiq-zig-integration", &protocol_buffer);
 
+    // NATS Core preserves the canonical identity end to end.
     const core_event = ubiq.event.Envelope{
         .id = "evt-core-1",
         .event = try ubiq.event.CanonicalEvent.parse("Financial.corePing.ok"),
@@ -86,8 +87,59 @@ pub fn main(init: std.process.Init) !void {
     if (!duplicate_ack.duplicate) return error.DeduplicationFailed;
     if (first_ack.sequence != duplicate_ack.sequence) return error.DuplicateSequenceChanged;
 
+    // Durable pull consumer with explicit broker ACK. This ACK is not the UbiQ
+    // execution settlement; the two state machines are exercised separately.
+    try js.createDurablePullConsumer(
+        "UBIQ_WORKER",
+        "Financial.createInvoice.ok",
+        5_000_000_000,
+        5,
+        "_INBOX.UBIQ.CONSUMER",
+        "5",
+        &message_buffer,
+        &subject_buffer,
+        &reply_buffer,
+        &protocol_buffer,
+    );
+
+    const pulled = try js.pullOne(
+        "UBIQ_WORKER",
+        2_000_000_000,
+        "_INBOX.UBIQ.NEXT",
+        "6",
+        &message_buffer,
+        &subject_buffer,
+        &reply_buffer,
+        &protocol_buffer,
+    );
+    if (!std.mem.eql(u8, pulled.envelope.event.name, durable_event.event.name)) return error.CanonicalIdentityChanged;
+    if (!std.mem.eql(u8, pulled.envelope.payload, durable_event.payload)) return error.PayloadChanged;
+
+    var execution_state: ubiq.delivery.DeliveryState = .leased;
+    execution_state = try ubiq.settlement.transition(execution_state, .received);
+    if (execution_state != .received) return error.ReceiptWasPromotedToSettlement;
+
+    // Broker work-in-progress only extends JetStream's ack window.
+    try js.working(pulled.ack_subject, &protocol_buffer);
+    if (execution_state != .received) return error.BrokerAckMutatedExecutionState;
+
+    // The worker/Action explicitly settles after successful execution.
+    execution_state = try ubiq.settlement.transition(execution_state, .settled_ok);
+    if (execution_state != .settled_ok) return error.ExecutionDidNotSettle;
+
+    // Only after durable UbiQ settlement do we release the JetStream message.
+    try js.ack(pulled.ack_subject, &protocol_buffer);
+    if (execution_state != .settled_ok) return error.BrokerAckMutatedExecutionState;
+
     std.debug.print(
-        "UbiQ NATS integration: core={s} stream={s} seq={d} duplicate={any}\n",
-        .{ core_received.event.name, first_ack.stream, first_ack.sequence, duplicate_ack.duplicate },
+        "UbiQ NATS integration: core={s} stream={s} seq={d} duplicate={any} pulled={s} settlement={s}\n",
+        .{
+            core_received.event.name,
+            first_ack.stream,
+            first_ack.sequence,
+            duplicate_ack.duplicate,
+            pulled.envelope.event.name,
+            @tagName(execution_state),
+        },
     );
 }
