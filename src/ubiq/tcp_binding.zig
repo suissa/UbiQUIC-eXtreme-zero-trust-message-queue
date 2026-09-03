@@ -24,18 +24,18 @@ pub fn receiveFramed(reader: *std.Io.Reader, frame_buffer: []u8) TcpBindingError
     return wire.decode(frame_buffer[0..frame_len]);
 }
 
-/// Concrete std.net TCP sender. The UbiQ semantic layer never sees socket
-/// addresses; only this binding owns the TCP stream.
-pub fn send(stream: std.net.Stream, envelope: event.Envelope, frame_buffer: []u8) TcpBindingError!void {
+/// Concrete Zig 0.16 `std.Io.net` TCP sender. The semantic layer never sees
+/// socket addresses; only this transport binding owns network I/O.
+pub fn send(io: std.Io, stream: std.Io.net.Stream, envelope: event.Envelope, frame_buffer: []u8) TcpBindingError!void {
     var socket_buffer: [8192]u8 = undefined;
-    var socket_writer = stream.writer(&socket_buffer);
+    var socket_writer = stream.writer(io, &socket_buffer);
     try sendFramed(&socket_writer.interface, envelope, frame_buffer);
 }
 
-pub fn receive(stream: std.net.Stream, frame_buffer: []u8) TcpBindingError!event.Envelope {
+pub fn receive(io: std.Io, stream: std.Io.net.Stream, frame_buffer: []u8) TcpBindingError!event.Envelope {
     var socket_buffer: [8192]u8 = undefined;
-    var socket_reader = stream.reader(&socket_buffer);
-    return receiveFramed(socket_reader.interface(), frame_buffer);
+    var socket_reader = stream.reader(io, &socket_buffer);
+    return receiveFramed(&socket_reader.interface, frame_buffer);
 }
 
 fn sampleEnvelope() !event.Envelope {
