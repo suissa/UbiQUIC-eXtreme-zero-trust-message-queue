@@ -3,10 +3,13 @@ const event = @import("event.zig");
 const wire = @import("wire.zig");
 const nats = @import("nats_client.zig");
 
+const stream_create_response_type = "io.nats.jetstream.api.v1.stream_create_response";
+
 pub const JetStreamError = error{
     InvalidStreamName,
     InvalidSubjectFilter,
     ApiError,
+    InvalidApiResponse,
     InvalidPubAck,
     WrongStream,
 } || nats.ClientError;
@@ -52,15 +55,7 @@ pub const JetStream = struct {
         try self.client.unsubscribeAfter(sid, 1, protocol_buffer);
         try self.client.publishRaw(api_subject, inbox, body, protocol_buffer);
         const response = try self.client.nextRaw(response_buffer, subject_buffer, reply_buffer, protocol_buffer);
-        if (std.mem.indexOf(u8, response.payload, "\"error\"") != null or
-            std.mem.indexOf(u8, response.payload, "\"stream_create_response\"") == null)
-        {
-            std.debug.print(
-                "JetStream unexpected create response: subject={s} reply={s} payload={s}\n",
-                .{ response.subject, response.reply_to, response.payload },
-            );
-            return error.ApiError;
-        }
+        try validateApiResponseType(response.payload, stream_create_response_type);
     }
 
     pub fn publish(
@@ -92,12 +87,22 @@ pub const JetStream = struct {
 };
 
 pub fn parsePubAck(payload: []const u8, expected_stream: []const u8) JetStreamError!PubAck {
-    if (std.mem.indexOf(u8, payload, "\"error\"") != null) return error.ApiError;
+    if (hasApiError(payload)) return error.ApiError;
     const stream = extractJsonString(payload, "\"stream\":\"") orelse return error.InvalidPubAck;
     if (!std.mem.eql(u8, stream, expected_stream)) return error.WrongStream;
     const sequence = extractJsonU64(payload, "\"seq\":") orelse return error.InvalidPubAck;
     const duplicate = extractJsonBool(payload, "\"duplicate\":") orelse false;
     return .{ .stream = stream, .sequence = sequence, .duplicate = duplicate };
+}
+
+fn validateApiResponseType(payload: []const u8, expected_type: []const u8) JetStreamError!void {
+    if (hasApiError(payload)) return error.ApiError;
+    const response_type = extractJsonString(payload, "\"type\":\"") orelse return error.InvalidApiResponse;
+    if (!std.mem.eql(u8, response_type, expected_type)) return error.InvalidApiResponse;
+}
+
+fn hasApiError(payload: []const u8) bool {
+    return std.mem.indexOf(u8, payload, "\"error\":") != null;
 }
 
 fn validateStreamName(name: []const u8) JetStreamError!void {
@@ -136,6 +141,17 @@ fn extractJsonBool(payload: []const u8, prefix: []const u8) ?bool {
     if (std.mem.startsWith(u8, payload[cursor..], "true")) return true;
     if (std.mem.startsWith(u8, payload[cursor..], "false")) return false;
     return null;
+}
+
+test "JetStream API response type is validated exactly" {
+    try validateApiResponseType(
+        "{\"type\":\"io.nats.jetstream.api.v1.stream_create_response\",\"did_create\":true}",
+        stream_create_response_type,
+    );
+    try std.testing.expectError(
+        error.InvalidApiResponse,
+        validateApiResponseType("{\"type\":\"io.nats.jetstream.api.v1.stream_info_response\"}", stream_create_response_type),
+    );
 }
 
 test "JetStream PubAck is parsed without promoting it to execution settlement" {
