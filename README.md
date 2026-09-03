@@ -1,124 +1,176 @@
-# UbiQUIC UniversalServer
+# UbiQ
 
-UbiQUIC is the H2A2H reference for a transport-neutral **UniversalServer** with eXtreme Zero Trust (XZT), canonical event preservation and LinearAutoDestroy semantics.
+UbiQ is a universal semantic messaging runtime for AllasCode/H2A2H. The same typed event can be received through one protocol, routed through a different durable backbone and delivered through another protocol without changing its semantic identity.
 
-The original QUIC broker remains the reference low-latency backend, but the architecture no longer makes QUIC a domain requirement. NATS, JetStream, Kafka, Redpanda, RabbitMQ, BullMQ, Redis Streams, MQTT, gRPC, HTTP, MCP, A2A, AP2 and future technologies are selected through adapters declared in `config.yml`.
+`REST -> JetStream -> WebSocket`
 
-## Core invariant
+`Memory -> QUIC -> Kafka`
 
-Domain code sees one event identity regardless of adapter.
+`NATS -> RabbitMQ -> SSE`
 
-For example:
+The transport is an implementation detail. Domain code sees only the canonical event.
 
-`Financial.SellMachine.SaleIdentified`
+## Canonical event language
 
-must remain exactly that canonical H2A2H event to the runtime. An adapter may internally map it to a NATS subject, Kafka topic, RabbitMQ routing key, BullMQ queue or another technology-specific name, but the mapping must be reversible:
+The minimum canonical form is:
 
-`canonical -> transport -> canonical`
+`{Entity}.{action_or_intent}.{state}`
 
-If round-trip mapping does not reproduce the exact canonical event, the adapter is non-conformant.
+where `state` is one of:
 
-## Everything as Code
+- `request`
+- `ok`
+- `error`
 
-The canonical interface is defined in:
+Examples:
 
-`schemas/universal-adapter.schema.yml`
+- `Financial.createInvoice.request`
+- `Financial.createInvoice.ok`
+- `Financial.createInvoice.error`
 
-It is JSON Schema 2020-12 serialized as YAML. The schema defines technologies, endpoint/port configuration, capabilities, delivery semantics, security profiles and reversible event mapping.
+The runtime chooses the internal pipeline from this nominal event type before inspecting the domain payload:
 
-`codegen/generate.mjs` compiles schema-controlled enums and metadata for Zig, Rust, TypeScript and Go. The shared SPI contracts live under `generated/`.
+- `request` -> execution
+- `ok` -> consume
+- `error` -> self-healing
 
-Transport selection belongs in `config.yml`, never in an Entity/Agent's domain behavior.
+## Why UbiQ
 
-## Universal Adapter operations
+UbiQ means ubiquitous messaging language. The canonical event is stable across:
 
-Every conformant adapter exposes the same semantic operations:
+- bounded in-memory messaging;
+- TCP;
+- QUIC;
+- NATS;
+- NATS JetStream;
+- Kafka;
+- Redpanda;
+- RabbitMQ;
+- REST/HTTP;
+- WebSocket;
+- SSE.
 
-- `open(config)`
-- `close()`
-- `publish(envelope)`
-- `subscribe(canonical_event, handler)`
-- `ack(delivery)`
-- `nack(delivery, reason)`
-- `health()`
-- `capabilities()`
-- `mapCanonicalToTransport(canonical_event)`
-- `mapTransportToCanonical(transport_name)`
+The existing Universal Adapter schema also leaves extension points for MQTT, gRPC, MCP, A2A, AP2, BullMQ and Redis Streams.
 
-Unsupported broker guarantees must be reported as capability mismatches. They must not be silently weakened.
+A transport adapter may map the event to a subject, topic, stream, queue or route, but the mapping must preserve the exact canonical event in the envelope. Kafka does not need one topic per domain event; it may use `ubiq.events` while the event identity remains `Financial.createInvoice.ok`.
 
-## XZT security profile
+## Execution Settlement
 
-`h2a2h.security.xzt.v1` composes independently:
+UbiQ deliberately separates transport receipt from proof of execution.
 
-- mTLS peer authentication;
-- DPoP/proof-of-possession;
-- replay/freshness defense;
-- passwordless Human authority where applicable (WebAuthn/passkeys);
-- algorithm-agile hybrid post-quantum key-establishment policy (reference: X25519 + ML-KEM);
-- message-level integrity policy;
-- bounded OpenDelegation authority;
-- LinearAutoDestroy for ephemeral secrets and one-shot capability material.
+```text
+PUBLISHED
+   |
+   v
+LEASED(worker A)
+   |
+   v
+RECEIVED(worker A)   <- transport/consumer ACK is not completion
+   |
+   v
+worker executes effect
+   |
+   +------> SETTLED_OK
+   |
+   +------> SETTLED_ERROR
+```
 
-The implementation must declare the actual algorithms. QUIC/TLS alone is not considered "quantum secure".
+If the lease expires without settlement, the event becomes eligible for another worker.
 
-## Current QUIC broker capabilities
+For `processed` delivery, UbiQ targets:
 
-- subscriber-aware redelivery;
-- ACK TTL;
-- DLQ and Outbox flows;
-- event sourcing;
-- subscriber registry;
-- per-emission proof modeling;
-- mTLS/post-quantum envelope experimentation.
+`at-least-once delivery + idempotency + leases + explicit execution settlement`
 
-The current cryptographic prototype records local transcript evidence; production ML-KEM integration must use a reviewed cryptographic implementation rather than treating a SHA-256 transcript as a KEM.
+It does not make a false transport-independent `exactly-once` claim.
 
-## Configuration
+## Bounded in-memory broker
 
-The repository includes a multi-adapter `config.yml`. Changing the selected backend is intended to be configuration-only when both adapters satisfy the same required semantic capabilities.
+`MemoryBroker(N)` is allocation-free after construction. Capacity is compile-time bounded and publication is idempotent by `idempotency_key`.
+
+This is the same semantic contract used for local Actor-to-Actor delivery. Moving the receiver to another process/server changes the adapter, not the event language.
+
+## Capability-aware bridges
+
+Every adapter declares real capabilities such as:
+
+- reliable
+- ordered
+- durable
+- replay
+- bidirectional
+- native ACK
+- consumer groups
+- streaming
+
+Routes are validated before use.
 
 Example:
 
-```yaml
-universal_server:
-  default_adapter: nats
-
-adapters:
-  nats:
-    technology: nats
-    enabled: true
-    endpoint:
-      host: 127.0.0.1
-      port: 4222
-    security_profile: xzt
+```text
+REST ingress
+    |
+    v
+JetStream durable backbone
+    |
+    v
+WebSocket egress
 ```
 
-## Code generation
+A `processed` event can use this route because durability belongs to JetStream. REST and WebSocket are not incorrectly advertised as durable logs.
+
+## eXtreme Zero Trust
+
+The XZT policy layer models:
+
+- mTLS peer authentication;
+- replay defense;
+- UbiQ Proof-of-Possession for transport-neutral messaging;
+- HTTP DPoP only on HTTP-compatible boundaries;
+- hybrid X25519 + ML-KEM policy;
+- hybrid Ed25519 + ML-DSA policy;
+- XChaCha20-Poly1305 / AES-GCM-SIV message protection policy;
+- LinearAutoDestroy one-shot execution capabilities.
+
+Cryptographic policy and cryptographic implementation are intentionally separate. The runtime no longer pretends that hashing a transcript is equivalent to Kyber/ML-KEM or a real DPoP proof. Production crypto must be supplied by a reviewed provider.
+
+## LinearAutoDestroy
+
+LinearAutoDestroy consumes execution authority, not audit history.
+
+Once the one-shot capability has been used, the same capability cannot execute the event again. The EventStore/audit record may remain available indefinitely.
+
+## Schemas
+
+- `schemas/event-envelope.schema.yml`: typed UbiQ event envelope
+- `schemas/universal-adapter.schema.yml`: Everything-as-Code adapter/security/capability configuration
+
+The repository already includes generated Universal Adapter contracts for Zig, Rust, TypeScript and Go under `generated/`.
+
+## Runtime source
+
+- `src/ubiq/event.zig`
+- `src/ubiq/capability.zig`
+- `src/ubiq/delivery.zig`
+- `src/ubiq/security.zig`
+- `src/ubiq/mapping.zig`
+- `src/ubiq/runtime.zig`
+
+See `docs/ARCHITECTURE.md` for the complete model.
+
+## Zig 0.16
+
+This branch targets the stable Zig 0.16.0 release.
 
 ```bash
-cd codegen
-npm install
-npm run generate
-```
-
-Generated bindings target:
-
-- Zig 0.16
-- Rust
-- TypeScript
-- Go
-
-## Running the existing Zig broker
-
-```bash
+zig build
+zig build test
 zig build run
 ```
 
-## Tests
+CI pins Zig `0.16.0` and checks formatting, build, tests and the semantic runtime demo.
 
-```bash
-zig build test
-```
+## Current implementation boundary
 
-The next implementation layer is the concrete backend registry: each technology implements the generated Universal Adapter SPI while the UniversalServer validates `config.yml`, checks capability/security compatibility and injects the chosen adapter at runtime.
+The semantic runtime, bounded memory broker, settlement state machine, capability negotiation, reversible transport mapping and security policy model are implemented in Zig.
+
+Wire-level NATS/JetStream/Kafka/Redpanda/RabbitMQ/QUIC/HTTP/WebSocket/SSE clients remain adapter implementations behind the Universal Adapter SPI; they must use real client libraries and real cryptographic providers rather than protocol simulations.
