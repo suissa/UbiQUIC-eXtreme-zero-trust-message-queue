@@ -21,6 +21,21 @@ runtime:
     idempotency: required
     received_is_settled: false
 
+cluster:
+  replication_factor: 2
+  shard_count: 256
+  placement: rendezvous
+  nodes:
+    - id: node-a
+      address: quic://127.0.0.1:4433
+      healthy: true
+    - id: node-b
+      address: quic://127.0.0.1:4434
+      healthy: true
+    - id: node-c
+      address: quic://127.0.0.1:4435
+      healthy: true
+
 security_profiles:
   xzt:
     profile: h2a2h.security.xzt.v1
