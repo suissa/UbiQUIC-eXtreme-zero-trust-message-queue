@@ -1,7 +1,5 @@
 const std = @import("std");
-const event = @import("../ubiq/event.zig");
-const nats = @import("../ubiq/nats_client.zig");
-const jetstream = @import("../ubiq/jetstream.zig");
+const ubiq = @import("ubiq");
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -13,15 +11,14 @@ pub fn main(init: std.process.Init) !void {
     var write_buffer: [16 * 1024]u8 = undefined;
     var stream_reader = stream.reader(io, &read_buffer);
     var stream_writer = stream.writer(io, &write_buffer);
-    var client = nats.Client.init(&stream_reader.interface, &stream_writer.interface);
+    var client = ubiq.nats_client.Client.init(&stream_reader.interface, &stream_writer.interface);
 
     var protocol_buffer: [32 * 1024]u8 = undefined;
     try client.handshake("ubiq-zig-integration", &protocol_buffer);
 
-    // NATS Core: canonical event identity survives publish/subscribe exactly.
-    const core_event = event.Envelope{
+    const core_event = ubiq.event.Envelope{
         .id = "evt-core-1",
-        .event = try event.CanonicalEvent.parse("Financial.corePing.ok"),
+        .event = try ubiq.event.CanonicalEvent.parse("Financial.corePing.ok"),
         .correlation_id = "corr-core-1",
         .causation_id = "cause-core-1",
         .idempotency_key = "idem-core-1",
@@ -41,8 +38,7 @@ pub fn main(init: std.process.Init) !void {
     if (!std.mem.eql(u8, core_received.event.name, core_event.event.name)) return error.CanonicalIdentityChanged;
     if (!std.mem.eql(u8, core_received.payload, core_event.payload)) return error.PayloadChanged;
 
-    // JetStream: stream bootstrap + persistent publish acknowledgement.
-    var js = try jetstream.JetStream.init(&client, "UBIQ_EVENTS");
+    var js = try ubiq.jetstream.JetStream.init(&client, "UBIQ_EVENTS");
     try js.createStream(
         "Financial.>",
         "_INBOX.UBIQ.CREATE",
@@ -53,9 +49,9 @@ pub fn main(init: std.process.Init) !void {
         &protocol_buffer,
     );
 
-    const durable_event = event.Envelope{
+    const durable_event = ubiq.event.Envelope{
         .id = "evt-js-1",
-        .event = try event.CanonicalEvent.parse("Financial.createInvoice.ok"),
+        .event = try ubiq.event.CanonicalEvent.parse("Financial.createInvoice.ok"),
         .correlation_id = "corr-js-1",
         .causation_id = "cause-js-1",
         .idempotency_key = "idem-js-stable-1",
