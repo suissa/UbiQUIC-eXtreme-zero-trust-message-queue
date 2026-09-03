@@ -1,0 +1,87 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://h2a2h.space/schemas/ubiq-event-envelope.schema.yml"
+title: UbiQ Canonical Event Envelope
+type: object
+additionalProperties: false
+required:
+  - specversion
+  - id
+  - type
+  - state
+  - source
+  - correlation_id
+  - idempotency_key
+  - schema
+  - delivery
+  - data
+properties:
+  specversion:
+    const: "1.0"
+  id:
+    type: string
+    minLength: 1
+  type:
+    description: Canonical transport-independent event identity.
+    type: string
+    pattern: "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$"
+  state:
+    type: string
+    enum: [request, ok, error]
+  source:
+    type: string
+    minLength: 1
+  correlation_id:
+    type: string
+    minLength: 1
+  causation_id:
+    type: string
+  idempotency_key:
+    type: string
+    minLength: 1
+  schema:
+    type: object
+    additionalProperties: false
+    required: [id, version]
+    properties:
+      id: { type: string, minLength: 1 }
+      version: { type: integer, minimum: 1 }
+  delivery:
+    type: object
+    additionalProperties: false
+    required: [guarantee]
+    properties:
+      guarantee:
+        type: string
+        enum: [best_effort, received, processed]
+      lease_ms:
+        type: integer
+        minimum: 1
+      max_attempts:
+        type: integer
+        minimum: 1
+      execution_settlement:
+        type: boolean
+        default: true
+  security:
+    type: object
+    additionalProperties: false
+    properties:
+      profile: { type: string }
+      proof_type:
+        type: string
+        enum: [none, dpop-http, ubiq-pop]
+      proof: { type: string }
+      signature: { type: string }
+      nonce: { type: string }
+      expires_at_ms: { type: integer, minimum: 0 }
+  data: {}
+allOf:
+  - if:
+      properties:
+        delivery:
+          properties:
+            guarantee: { const: processed }
+    then:
+      properties:
+        delivery:
+          required: [lease_ms, max_attempts, execution_settlement]

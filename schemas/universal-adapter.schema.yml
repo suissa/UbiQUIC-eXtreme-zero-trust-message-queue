@@ -1,62 +1,111 @@
 $schema: "https://json-schema.org/draft/2020-12/schema"
 $id: "https://h2a2h.space/schemas/universal-adapter.schema.yml"
-title: H2A2H Universal Adapter Configuration
+title: UbiQ Universal Adapter Configuration
 type: object
 additionalProperties: false
-required:
-  - universal_server
-  - adapters
-  - security_profiles
+required: [universal_server, adapters, security_profiles]
 properties:
   universal_server:
     type: object
     additionalProperties: false
     required: [name, host, canonical_event_namespace, default_adapter]
     properties:
-      name:
-        type: string
-        minLength: 1
-      host:
-        type: string
-        minLength: 1
-      canonical_event_namespace:
-        type: string
-        minLength: 1
-      default_adapter:
-        type: string
-        minLength: 1
-      strict_capabilities:
-        type: boolean
-        default: true
+      name: { type: string, minLength: 1 }
+      host: { type: string, minLength: 1 }
+      canonical_event_namespace: { type: string, minLength: 1 }
+      default_adapter: { type: string, minLength: 1 }
+      strict_capabilities: { type: boolean, default: true }
+      execution_settlement: { type: boolean, default: true }
+  runtime:
+    $ref: "#/$defs/runtime"
+  cluster:
+    $ref: "#/$defs/cluster"
   adapters:
     type: object
     minProperties: 1
-    additionalProperties:
-      $ref: "#/$defs/adapter"
+    additionalProperties: { $ref: "#/$defs/adapter" }
   security_profiles:
     type: object
     minProperties: 1
-    additionalProperties:
-      $ref: "#/$defs/securityProfile"
+    additionalProperties: { $ref: "#/$defs/securityProfile" }
+  bridges:
+    type: object
+    additionalProperties: { $ref: "#/$defs/bridge" }
   mappings:
     type: object
-    additionalProperties:
-      $ref: "#/$defs/eventMapping"
+    additionalProperties: { $ref: "#/$defs/eventMapping" }
 $defs:
+  runtime:
+    type: object
+    additionalProperties: true
+    properties:
+      event_schema: { type: string }
+      canonical_name: { type: string }
+      states:
+        type: array
+        items: { enum: [request, ok, error] }
+        uniqueItems: true
+      pipelines:
+        type: object
+        additionalProperties: false
+        properties:
+          request: { const: execution }
+          ok: { const: consume }
+          error: { const: self-healing }
+      delivery:
+        type: object
+        additionalProperties: false
+        properties:
+          default_guarantee: { enum: [best_effort, received, processed] }
+          lease_ms: { type: integer, minimum: 1 }
+          max_attempts: { type: integer, minimum: 1 }
+          idempotency: { enum: [required, optional] }
+          received_is_settled: { const: false }
+  cluster:
+    type: object
+    additionalProperties: false
+    properties:
+      replication_factor: { type: integer, minimum: 1 }
+      shard_count: { type: integer, minimum: 1 }
+      placement: { enum: [rendezvous] }
+      nodes:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [id]
+          properties:
+            id: { type: string, minLength: 1 }
+            address: { type: string }
+            healthy: { type: boolean, default: true }
+  bridge:
+    type: object
+    additionalProperties: false
+    required: [ingress, backbone, egress]
+    properties:
+      ingress: { type: string, minLength: 1 }
+      backbone: { type: string, minLength: 1 }
+      egress: { type: string, minLength: 1 }
+      requires:
+        type: object
+        additionalProperties: false
+        properties:
+          reliable: { type: boolean }
+          ordered: { type: boolean }
+          durable: { type: boolean }
+          replay: { type: boolean }
+          bidirectional: { type: boolean }
+          execution_settlement: { type: boolean }
   adapter:
     type: object
     additionalProperties: false
-    required:
-      - technology
-      - enabled
-      - endpoint
-      - security_profile
-      - semantics
+    required: [technology, enabled, endpoint, security_profile, semantics]
     properties:
       technology:
         type: string
         enum:
           - in-memory
+          - tcp
           - quic
           - nats
           - jetstream
@@ -69,18 +118,14 @@ $defs:
           - grpc
           - http
           - websocket
+          - sse
           - mcp
           - a2a
           - ap2
-      enabled:
-        type: boolean
-      endpoint:
-        $ref: "#/$defs/endpoint"
-      security_profile:
-        type: string
-        minLength: 1
-      semantics:
-        $ref: "#/$defs/semantics"
+      enabled: { type: boolean }
+      endpoint: { $ref: "#/$defs/endpoint" }
+      security_profile: { type: string, minLength: 1 }
+      semantics: { $ref: "#/$defs/semantics" }
       options:
         type: object
         additionalProperties: true
@@ -88,74 +133,49 @@ $defs:
     type: object
     additionalProperties: false
     properties:
-      host:
-        type: string
-      port:
-        type: integer
-        minimum: 1
-        maximum: 65535
-      url:
-        type: string
-      subject_prefix:
-        type: string
-      topic_prefix:
-        type: string
-      queue_prefix:
-        type: string
-      stream:
-        type: string
-      vhost:
-        type: string
+      host: { type: string }
+      port: { type: integer, minimum: 1, maximum: 65535 }
+      url: { type: string }
+      subject_prefix: { type: string }
+      topic_prefix: { type: string }
+      queue_prefix: { type: string }
+      stream: { type: string }
+      vhost: { type: string }
     anyOf:
       - required: [url]
       - required: [host, port]
   semantics:
     type: object
     additionalProperties: false
-    required:
-      - mode
-      - reliable
-      - ordered
-      - durable
-      - replay
-      - acknowledgements
-      - canonical_event_preservation
+    required: [mode, reliable, ordered, durable, replay, acknowledgements, canonical_event_preservation]
     properties:
       mode:
         type: string
         enum: [request_reply, pub_sub, queue, stream, log, datagram, composite]
-      reliable:
-        type: boolean
-      ordered:
-        type: boolean
-      durable:
-        type: boolean
-      replay:
-        type: boolean
+      reliable: { type: boolean }
+      ordered: { type: boolean }
+      durable: { type: boolean }
+      replay: { type: boolean }
+      bidirectional: { type: boolean, default: false }
+      consumer_groups: { type: boolean, default: false }
+      streaming: { type: boolean, default: false }
       acknowledgements:
         type: string
-        enum: [none, broker, consumer, end_to_end]
-      canonical_event_preservation:
-        const: true
-      max_payload_bytes:
-        type: integer
-        minimum: 1
+        enum: [none, transport, broker, consumer, execution_settlement]
+      canonical_event_preservation: { const: true }
+      max_payload_bytes: { type: integer, minimum: 1 }
+      max_inflight: { type: integer, minimum: 1 }
+      lease_ms: { type: integer, minimum: 1 }
   securityProfile:
     type: object
     additionalProperties: false
-    required:
-      - profile
-      - peer_authentication
-      - proof_of_possession
-      - replay_defense
-      - key_establishment
-      - linear_auto_destroy
+    required: [profile, peer_authentication, proof_of_possession, replay_defense, key_establishment, linear_auto_destroy]
     properties:
       profile:
         type: string
         enum:
           - h2a2h.security.local-trusted.v1
-          - h2a2h.security.mtls-dpop.v1
+          - h2a2h.security.mtls-pop.v1
           - h2a2h.security.xzt.v1
       peer_authentication:
         type: string
@@ -166,41 +186,33 @@ $defs:
         default: none
       proof_of_possession:
         type: string
-        enum: [none, dpop, detached-signature]
-      replay_defense:
-        type: boolean
+        description: dpop-http is RFC 9449/HTTP-bound; ubiq-pop is the transport-neutral message proof contract.
+        enum: [none, dpop-http, ubiq-pop]
+      replay_defense: { type: boolean }
       key_establishment:
         type: string
-        enum:
-          - tls-default
-          - x25519
-          - ml-kem
-          - hybrid-x25519-ml-kem
+        enum: [tls-default, x25519, ml-kem, hybrid-x25519-ml-kem]
       message_integrity:
         type: string
-        enum: [transport-only, ed25519, detached-signature]
+        enum: [transport-only, ed25519, ml-dsa, hybrid-ed25519-ml-dsa]
         default: transport-only
-      linear_auto_destroy:
-        type: boolean
-      ephemeral_secret_ttl_ms:
-        type: integer
-        minimum: 1
+      aead:
+        type: string
+        enum: [transport-only, xchacha20-poly1305, aes-gcm-siv]
+        default: transport-only
+      linear_auto_destroy: { type: boolean }
+      ephemeral_secret_ttl_ms: { type: integer, minimum: 1 }
   eventMapping:
     type: object
     additionalProperties: false
-    required:
-      - canonical_event
-      - strategy
+    required: [canonical_event, strategy]
     properties:
       canonical_event:
         type: string
-        pattern: "^[A-Za-z][A-Za-z0-9]*(\\.[A-Za-z][A-Za-z0-9]*)+$"
+        pattern: "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$"
       strategy:
         type: string
-        enum: [identity, reversible-template, explicit]
-      transport_name:
-        type: string
-      template:
-        type: string
-      reversible:
-        const: true
+        enum: [identity, reversible-template, envelope-preserved]
+      transport_name: { type: string }
+      template: { type: string }
+      reversible: { const: true }

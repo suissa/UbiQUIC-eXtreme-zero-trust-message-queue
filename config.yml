@@ -1,29 +1,78 @@
 universal_server:
-  name: ubiquic-universal-server
+  name: ubiq
   host: 0.0.0.0
-  canonical_event_namespace: h2a2h
-  default_adapter: quic
+  canonical_event_namespace: allascode
+  default_adapter: memory
   strict_capabilities: true
+  execution_settlement: true
+
+runtime:
+  event_schema: schemas/event-envelope.schema.yml
+  canonical_name: "{Entity}.{action_or_intent}.{state}"
+  states: [request, ok, error]
+  pipelines:
+    request: execution
+    ok: consume
+    error: self-healing
+  delivery:
+    default_guarantee: processed
+    lease_ms: 5000
+    max_attempts: 5
+    idempotency: required
+    received_is_settled: false
+
+cluster:
+  replication_factor: 2
+  shard_count: 256
+  placement: rendezvous
+  nodes:
+    - id: node-a
+      address: quic://127.0.0.1:4433
+      healthy: true
+    - id: node-b
+      address: quic://127.0.0.1:4434
+      healthy: true
+    - id: node-c
+      address: quic://127.0.0.1:4435
+      healthy: true
 
 security_profiles:
   xzt:
     profile: h2a2h.security.xzt.v1
     peer_authentication: mtls
-    passwordless: webauthn
-    proof_of_possession: dpop
+    passwordless: passkey
+    proof_of_possession: ubiq-pop
     replay_defense: true
     key_establishment: hybrid-x25519-ml-kem
-    message_integrity: ed25519
+    message_integrity: hybrid-ed25519-ml-dsa
+    aead: xchacha20-poly1305
     linear_auto_destroy: true
     ephemeral_secret_ttl_ms: 30000
 
 adapters:
+  memory:
+    technology: in-memory
+    enabled: true
+    endpoint: { url: "memory://ubiq" }
+    security_profile: xzt
+    semantics:
+      mode: queue
+      reliable: true
+      ordered: true
+      durable: false
+      replay: false
+      bidirectional: true
+      consumer_groups: false
+      streaming: false
+      acknowledgements: execution_settlement
+      canonical_event_preservation: true
+      max_inflight: 64
+      lease_ms: 5000
+
   quic:
     technology: quic
     enabled: true
-    endpoint:
-      host: 0.0.0.0
-      port: 4433
+    endpoint: { host: 0.0.0.0, port: 4433 }
     security_profile: xzt
     semantics:
       mode: stream
@@ -31,18 +80,16 @@ adapters:
       ordered: true
       durable: false
       replay: false
-      acknowledgements: end_to_end
+      bidirectional: true
+      consumer_groups: false
+      streaming: true
+      acknowledgements: transport
       canonical_event_preservation: true
-    options:
-      implementation: ubiquic
 
   nats:
     technology: nats
     enabled: true
-    endpoint:
-      host: 127.0.0.1
-      port: 4222
-      subject_prefix: h2a2h
+    endpoint: { host: 127.0.0.1, port: 4222, subject_prefix: ubiq }
     security_profile: xzt
     semantics:
       mode: pub_sub
@@ -50,16 +97,34 @@ adapters:
       ordered: false
       durable: false
       replay: false
+      bidirectional: true
+      consumer_groups: true
+      streaming: false
+      acknowledgements: transport
+      canonical_event_preservation: true
+
+  jetstream:
+    technology: jetstream
+    enabled: true
+    endpoint: { host: 127.0.0.1, port: 4222, stream: UBIQ_EVENTS }
+    security_profile: xzt
+    semantics:
+      mode: stream
+      reliable: true
+      ordered: false
+      durable: true
+      replay: true
+      bidirectional: true
+      consumer_groups: true
+      streaming: true
       acknowledgements: consumer
       canonical_event_preservation: true
+      lease_ms: 5000
 
   kafka:
     technology: kafka
     enabled: false
-    endpoint:
-      host: 127.0.0.1
-      port: 9092
-      topic_prefix: h2a2h
+    endpoint: { host: 127.0.0.1, port: 9092, topic_prefix: ubiq }
     security_profile: xzt
     semantics:
       mode: log
@@ -67,16 +132,16 @@ adapters:
       ordered: true
       durable: true
       replay: true
+      bidirectional: false
+      consumer_groups: true
+      streaming: true
       acknowledgements: broker
       canonical_event_preservation: true
 
   redpanda:
     technology: redpanda
     enabled: false
-    endpoint:
-      host: 127.0.0.1
-      port: 9092
-      topic_prefix: h2a2h
+    endpoint: { host: 127.0.0.1, port: 9092, topic_prefix: ubiq }
     security_profile: xzt
     semantics:
       mode: log
@@ -84,16 +149,16 @@ adapters:
       ordered: true
       durable: true
       replay: true
+      bidirectional: false
+      consumer_groups: true
+      streaming: true
       acknowledgements: broker
       canonical_event_preservation: true
 
   rabbitmq:
     technology: rabbitmq
     enabled: false
-    endpoint:
-      host: 127.0.0.1
-      port: 5672
-      queue_prefix: h2a2h
+    endpoint: { host: 127.0.0.1, port: 5672, queue_prefix: ubiq }
     security_profile: xzt
     semantics:
       mode: queue
@@ -101,29 +166,75 @@ adapters:
       ordered: false
       durable: true
       replay: false
+      bidirectional: true
+      consumer_groups: true
+      streaming: false
       acknowledgements: consumer
       canonical_event_preservation: true
 
-  bullmq:
-    technology: bullmq
-    enabled: false
-    endpoint:
-      host: 127.0.0.1
-      port: 6379
-      queue_prefix: h2a2h
+  rest:
+    technology: http
+    enabled: true
+    endpoint: { url: "https://0.0.0.0:8443/v1/events" }
     security_profile: xzt
     semantics:
-      mode: queue
+      mode: request_reply
       reliable: true
       ordered: false
-      durable: true
+      durable: false
       replay: false
-      acknowledgements: consumer
+      bidirectional: true
+      consumer_groups: false
+      streaming: false
+      acknowledgements: transport
       canonical_event_preservation: true
+
+  websocket:
+    technology: websocket
+    enabled: true
+    endpoint: { url: "wss://0.0.0.0:8443/v1/events/ws" }
+    security_profile: xzt
+    semantics:
+      mode: stream
+      reliable: true
+      ordered: true
+      durable: false
+      replay: false
+      bidirectional: true
+      consumer_groups: false
+      streaming: true
+      acknowledgements: transport
+      canonical_event_preservation: true
+
+  sse:
+    technology: sse
+    enabled: true
+    endpoint: { url: "https://0.0.0.0:8443/v1/events/sse" }
+    security_profile: xzt
+    semantics:
+      mode: stream
+      reliable: true
+      ordered: true
+      durable: false
+      replay: false
+      bidirectional: false
+      consumer_groups: false
+      streaming: true
+      acknowledgements: none
+      canonical_event_preservation: true
+
+bridges:
+  http_to_ws_processed:
+    ingress: rest
+    backbone: jetstream
+    egress: websocket
+    requires:
+      reliable: true
+      durable: true
+      execution_settlement: true
 
 mappings:
-  sale_identified:
-    canonical_event: Financial.SellMachine.SaleIdentified
-    strategy: reversible-template
-    template: "{namespace}.{canonical_event}"
+  create_invoice_ok:
+    canonical_event: Financial.createInvoice.ok
+    strategy: envelope-preserved
     reversible: true
