@@ -11,6 +11,7 @@ pub const ClientError = error{
     ReplySubjectTooLarge,
     SubjectTooLarge,
     InvalidTrailer,
+    StreamTooLong,
 } || protocol.ProtocolError || wire.WireError || std.Io.Reader.Error || std.Io.Writer.Error;
 
 pub const RawMessage = struct {
@@ -19,8 +20,6 @@ pub const RawMessage = struct {
     payload: []const u8,
 };
 
-/// Allocation-free NATS Core protocol client. Network ownership stays outside
-/// this type: callers provide stable Zig 0.16 `std.Io.Reader/Writer` pointers.
 pub const Client = struct {
     reader: *std.Io.Reader,
     writer: *std.Io.Writer,
@@ -65,61 +64,31 @@ pub const Client = struct {
         try self.writer.flush();
     }
 
-    pub fn publishRaw(
-        self: *Client,
-        subject: []const u8,
-        reply_to: ?[]const u8,
-        payload: []const u8,
-        scratch: []u8,
-    ) ClientError!void {
+    pub fn publishRaw(self: *Client, subject: []const u8, reply_to: ?[]const u8, payload: []const u8, scratch: []u8) ClientError!void {
         const frame = try protocol.encodePub(scratch, subject, reply_to, payload);
         try self.writer.writeAll(frame);
         try self.writer.flush();
     }
 
-    pub fn publishHeaders(
-        self: *Client,
-        subject: []const u8,
-        reply_to: ?[]const u8,
-        header_lines: []const u8,
-        payload: []const u8,
-        scratch: []u8,
-    ) ClientError!void {
+    pub fn publishHeaders(self: *Client, subject: []const u8, reply_to: ?[]const u8, header_lines: []const u8, payload: []const u8, scratch: []u8) ClientError!void {
         const frame = try protocol.encodeHpub(scratch, subject, reply_to, header_lines, payload);
         try self.writer.writeAll(frame);
         try self.writer.flush();
     }
 
-    pub fn publishEnvelope(
-        self: *Client,
-        envelope: event.Envelope,
-        wire_buffer: []u8,
-        protocol_buffer: []u8,
-    ) ClientError!void {
+    pub fn publishEnvelope(self: *Client, envelope: event.Envelope, wire_buffer: []u8, protocol_buffer: []u8) ClientError!void {
         const payload = try wire.encode(envelope, wire_buffer);
         try self.publishRaw(envelope.event.name, null, payload, protocol_buffer);
     }
 
-    pub fn nextEnvelope(
-        self: *Client,
-        payload_buffer: []u8,
-        subject_buffer: []u8,
-        reply_buffer: []u8,
-        scratch: []u8,
-    ) ClientError!event.Envelope {
+    pub fn nextEnvelope(self: *Client, payload_buffer: []u8, subject_buffer: []u8, reply_buffer: []u8, scratch: []u8) ClientError!event.Envelope {
         const raw = try self.nextRaw(payload_buffer, subject_buffer, reply_buffer, scratch);
         const envelope = try wire.decode(raw.payload);
         if (!std.mem.eql(u8, raw.subject, envelope.event.name)) return error.InvalidFrame;
         return envelope;
     }
 
-    pub fn nextRaw(
-        self: *Client,
-        payload_buffer: []u8,
-        subject_buffer: []u8,
-        reply_buffer: []u8,
-        scratch: []u8,
-    ) ClientError!RawMessage {
+    pub fn nextRaw(self: *Client, payload_buffer: []u8, subject_buffer: []u8, reply_buffer: []u8, scratch: []u8) ClientError!RawMessage {
         while (true) {
             const line = try self.reader.takeDelimiterInclusive('\n');
             const operation = try protocol.parseControlLine(line);
@@ -136,13 +105,7 @@ pub const Client = struct {
         }
     }
 
-    fn readMsg(
-        self: *Client,
-        operation: protocol.ServerMessage,
-        payload_buffer: []u8,
-        subject_buffer: []u8,
-        reply_buffer: []u8,
-    ) ClientError!RawMessage {
+    fn readMsg(self: *Client, operation: protocol.ServerMessage, payload_buffer: []u8, subject_buffer: []u8, reply_buffer: []u8) ClientError!RawMessage {
         const payload_len = try protocol.payloadLength(operation);
         if (payload_len > payload_buffer.len) return error.PayloadTooLarge;
         const subject = try copySubject(subject_buffer, operation.subject);
@@ -152,13 +115,7 @@ pub const Client = struct {
         return .{ .subject = subject, .reply_to = reply, .payload = payload_buffer[0..payload_len] };
     }
 
-    fn readHmsg(
-        self: *Client,
-        operation: protocol.ServerMessage,
-        payload_buffer: []u8,
-        subject_buffer: []u8,
-        reply_buffer: []u8,
-    ) ClientError!RawMessage {
+    fn readHmsg(self: *Client, operation: protocol.ServerMessage, payload_buffer: []u8, subject_buffer: []u8, reply_buffer: []u8) ClientError!RawMessage {
         const lengths = try protocol.hmsgLengths(operation);
         if (lengths.total < lengths.header) return error.InvalidMessage;
         const payload_len = lengths.total - lengths.header;
@@ -167,11 +124,7 @@ pub const Client = struct {
         const reply = try copyReply(reply_buffer, operation.reply_to);
         try self.reader.readSliceAll(payload_buffer[0..lengths.total]);
         try consumeCrlf(self.reader);
-        return .{
-            .subject = subject,
-            .reply_to = reply,
-            .payload = payload_buffer[lengths.header .. lengths.header + payload_len],
-        };
+        return .{ .subject = subject, .reply_to = reply, .payload = payload_buffer[lengths.header .. lengths.header + payload_len] };
     }
 
     fn sendPong(self: *Client, scratch: []u8) ClientError!void {
