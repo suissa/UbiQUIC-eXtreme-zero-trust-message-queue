@@ -16,6 +16,10 @@ properties:
       default_adapter: { type: string, minLength: 1 }
       strict_capabilities: { type: boolean, default: true }
       execution_settlement: { type: boolean, default: true }
+  runtime:
+    $ref: "#/$defs/runtime"
+  cluster:
+    $ref: "#/$defs/cluster"
   adapters:
     type: object
     minProperties: 1
@@ -24,10 +28,74 @@ properties:
     type: object
     minProperties: 1
     additionalProperties: { $ref: "#/$defs/securityProfile" }
+  bridges:
+    type: object
+    additionalProperties: { $ref: "#/$defs/bridge" }
   mappings:
     type: object
     additionalProperties: { $ref: "#/$defs/eventMapping" }
 $defs:
+  runtime:
+    type: object
+    additionalProperties: true
+    properties:
+      event_schema: { type: string }
+      canonical_name: { type: string }
+      states:
+        type: array
+        items: { enum: [request, ok, error] }
+        uniqueItems: true
+      pipelines:
+        type: object
+        additionalProperties: false
+        properties:
+          request: { const: execution }
+          ok: { const: consume }
+          error: { const: self-healing }
+      delivery:
+        type: object
+        additionalProperties: false
+        properties:
+          default_guarantee: { enum: [best_effort, received, processed] }
+          lease_ms: { type: integer, minimum: 1 }
+          max_attempts: { type: integer, minimum: 1 }
+          idempotency: { enum: [required, optional] }
+          received_is_settled: { const: false }
+  cluster:
+    type: object
+    additionalProperties: false
+    properties:
+      replication_factor: { type: integer, minimum: 1 }
+      shard_count: { type: integer, minimum: 1 }
+      placement: { enum: [rendezvous] }
+      nodes:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [id]
+          properties:
+            id: { type: string, minLength: 1 }
+            address: { type: string }
+            healthy: { type: boolean, default: true }
+  bridge:
+    type: object
+    additionalProperties: false
+    required: [ingress, backbone, egress]
+    properties:
+      ingress: { type: string, minLength: 1 }
+      backbone: { type: string, minLength: 1 }
+      egress: { type: string, minLength: 1 }
+      requires:
+        type: object
+        additionalProperties: false
+        properties:
+          reliable: { type: boolean }
+          ordered: { type: boolean }
+          durable: { type: boolean }
+          replay: { type: boolean }
+          bidirectional: { type: boolean }
+          execution_settlement: { type: boolean }
   adapter:
     type: object
     additionalProperties: false
