@@ -1,0 +1,37 @@
+name: runtime-go
+
+on:
+  pull_request:
+    paths:
+      - 'runtime/go/**'
+      - '.github/workflows/runtime-go.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'runtime/go/**'
+      - '.github/workflows/runtime-go.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.x'
+          cache-dependency-path: runtime/go/go.sum
+      - name: Resolve modules
+        working-directory: runtime/go
+        run: go mod tidy
+      - name: Format parser validation
+        working-directory: runtime/go
+        run: gofmt -w .
+      - name: Vet
+        working-directory: runtime/go
+        run: go vet ./...
+      - name: Unit and durability tests
+        working-directory: runtime/go
+        run: go test -race -count=1 ./...
