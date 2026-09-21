@@ -96,7 +96,7 @@ pub const QueueItem = struct {
 pub fn SemanticQueue(comptime capacity: usize) type {
     return struct {
         const Self = @This();
-        items: [capacity]QueueItem = undefined;
+        items: [capacity]QueueItem = undefined,
         len: usize = 0;
         policy: QueuePolicy,
 
