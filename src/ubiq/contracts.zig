@@ -127,7 +127,7 @@ pub fn SemanticQueue(comptime capacity: usize) type {
             return null;
         }
 
-        pub fn settle(self: *Self, item: *QueueItem) void {
+        pub fn settle(_: *Self, item: *QueueItem) void {
             item.leased_until_ms = 0;
         }
     };
