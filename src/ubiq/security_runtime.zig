@@ -66,8 +66,8 @@ pub const IdempotencyRecord = struct {
 pub fn IdempotencyTable(comptime capacity: usize) type {
     return struct {
         const Self = @This();
-        records: [capacity]IdempotencyRecord = undefined;
-        len: usize = 0;
+        records: [capacity]IdempotencyRecord = undefined,
+        len: usize = 0,
 
         pub fn begin(self: *Self, key: []const u8, operation: []const u8, payload_digest: []const u8) SecurityRuntimeError!Outcome {
             if (self.find(key, operation)) |index| {
