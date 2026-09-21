@@ -17,7 +17,7 @@ pub fn ReplayWindow(comptime capacity: usize) type {
     return struct {
         const Self = @This();
         entries: [capacity]ReplayEntry = undefined,
-        len: usize = 0;
+        len: usize = 0,
 
         pub fn accept(self: *Self, nonce: []const u8, now_ms: u64, ttl_ms: u64) SecurityRuntimeError!void {
             var i: usize = 0;
