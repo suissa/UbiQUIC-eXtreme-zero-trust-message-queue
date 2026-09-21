@@ -60,32 +60,6 @@ fn eligible(candidate: Candidate, requirements: Requirements, now_age_ms: u64, p
     if (requirements.require_mtls or requirements.require_proof_of_possession or requirements.require_replay_protection) {
         if (!candidate.security_ok) return false;
     }
-    if (requirements.hard_deadline_ms != 0 and candidate.metrics.latency_ms > requirements.hard_deadline_ms) return false;
-    return true;
-}
-
-fn score(candidate: Candidate, policy: Policy) u128 {
-    // Eligibility is correctness. Scoring only ranks already valid candidates.
-    var value: u128 = @as(u128, candidate.priority) * 1_000_000_000;
-    if (policy.prefer_low_latency) value += @as(u128, 1_000_000_000) / (@as(u128, candidate.metrics.latency_ms) + 1);
-    if (policy.prefer_low_cost) value += @as(u128, 1_000_000_000) / (@as(u128, candidate.metrics.cost_microunits) + 1);
-    value += @as(u128, 1_000_000) / (@as(u128, candidate.metrics.queue_depth) + 1);
-    return value;
-}
-
-/// Deterministic RFC-032/033/034/035 selector. Security and required
-/// capabilities are filters, never preferences. The caller supplies a
-/// stable candidate order so ties are deterministic.
-pub fn select(candidates: []const Candidate, requirements: Requirements, policy: Policy, now_age_ms: u64) RoutingError!Decision {
-    if (requirements.hard_deadline_ms == 0 and requirements.max_payload_bytes == 0 and
-        requirements.capabilities == .{} and !requirements.require_security_profile and
-        !requirements.require_mtls and !requirements.require_proof_of_possession and
-        !requirements.require_replay_protection)
-    {
-        // Empty requirements are valid; this branch documents that selection is
-        // still policy-driven and does not choose a protocol by name.
-    }
-
     var considered: usize = 0;
     var selected: ?Candidate = null;
     var selected_score: u128 = 0;
