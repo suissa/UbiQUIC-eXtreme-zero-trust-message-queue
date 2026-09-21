@@ -1,11 +1,7 @@
 const std = @import("std");
 const capability = @import("capability.zig");
 
-pub const RoutingError = error{
-    NoEligibleTransport,
-    InvalidRequirement,
-    InvalidCandidate,
-};
+pub const RoutingError = error{ NoEligibleTransport, InvalidRequirement, InvalidCandidate };
 
 pub const Requirements = struct {
     capabilities: capability.Requirements = .{},
@@ -49,23 +45,34 @@ pub const Decision = struct {
     reason: []const u8,
 };
 
-fn eligible(candidate: Candidate, requirements: Requirements, now_age_ms: u64, policy: Policy) bool {
+fn eligible(candidate: Candidate, requirements: Requirements, metric_age_ms: u64, policy: Policy) bool {
     if (!candidate.metrics.available or !candidate.security_ok) return false;
     if (policy.max_queue_depth != 0 and candidate.metrics.queue_depth > policy.max_queue_depth) return false;
-    if (policy.max_metric_age_ms != 0 and now_age_ms > policy.max_metric_age_ms) return false;
+    if (policy.max_metric_age_ms != 0 and metric_age_ms > policy.max_metric_age_ms) return false;
     if (requirements.max_payload_bytes != 0 and
         (candidate.payload_limit == 0 or candidate.payload_limit < requirements.max_payload_bytes)) return false;
     if (!capability.profile(candidate.transport).capabilities.satisfies(requirements.capabilities)) return false;
-    if (requirements.require_security_profile and !candidate.security_ok) return false;
-    if (requirements.require_mtls or requirements.require_proof_of_possession or requirements.require_replay_protection) {
-        if (!candidate.security_ok) return false;
-    }
+    if (requirements.hard_deadline_ms != 0 and candidate.metrics.latency_ms > requirements.hard_deadline_ms) return false;
+    return true;
+}
+
+fn score(candidate: Candidate, policy: Policy) u128 {
+    var value: u128 = @as(u128, candidate.priority) * 1_000_000_000;
+    if (policy.prefer_low_latency) value += @as(u128, 1_000_000_000) / (@as(u128, candidate.metrics.latency_ms) + 1);
+    if (policy.prefer_low_cost) value += @as(u128, 1_000_000_000) / (@as(u128, candidate.metrics.cost_microunits) + 1);
+    value += @as(u128, 1_000_000) / (@as(u128, candidate.metrics.queue_depth) + 1);
+    return value;
+}
+
+/// RFC-032/033/034/035 selector. Required security and capabilities are
+/// filters; policy only ranks candidates that are already admissible.
+pub fn select(candidates: []const Candidate, requirements: Requirements, policy: Policy, metric_age_ms: u64) RoutingError!Decision {
     var considered: usize = 0;
     var selected: ?Candidate = null;
     var selected_score: u128 = 0;
     for (candidates) |candidate| {
         considered += 1;
-        if (!eligible(candidate, requirements, now_age_ms, policy)) continue;
+        if (!eligible(candidate, requirements, metric_age_ms, policy)) continue;
         const candidate_score = score(candidate, policy);
         if (selected == null or candidate_score > selected_score) {
             selected = candidate;
