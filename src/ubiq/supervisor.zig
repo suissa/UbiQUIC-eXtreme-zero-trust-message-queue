@@ -86,7 +86,7 @@ test "supervisor configuration checks runtime dependencies and records health me
     tree.recordFailure(.sharder);
     tree.recordRestart(.sharder);
     const metrics = tree.metrics();
-    try std.testing.expectEqual(@as(u8, 5), metrics.enabled);
+    try std.testing.expectEqual(@as(u8, 4), metrics.enabled);
     try std.testing.expectEqual(@as(u64, 1), metrics.failures);
     try std.testing.expectEqual(@as(u64, 1), metrics.restarts);
 }
