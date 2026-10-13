@@ -34,9 +34,8 @@ pub const Projection = struct {
         return store.replay(self, replayVisitor);
     }
 
-    /// Apply a validated snapshot. A future write-through coordinator can use
-    /// this only after the corresponding record has been durably appended.
-    pub fn apply(self: *Projection, record: journal.Record) !void {
+    /// Validate before the caller performs an irreversible durable append.
+    pub fn validate(self: *const Projection, record: journal.Record) ProjectionError!void {
         if (record.sequence <= self.last_sequence) return error.SequenceRegression;
 
         if (self.findByIdempotencyKey(record.idempotency_key)) |existing_index| {
@@ -49,6 +48,17 @@ pub const Projection = struct {
             const previous = self.entries.items[index].record;
             if (!allowed(previous.delivery_state, record.delivery_state))
                 return error.InvalidTransition;
+        }
+    }
+
+    /// Apply a snapshot after it has been validated. Durable callers should
+    /// append+sync first, then apply; after a post-append allocation failure,
+    /// stop writes and rebuild from the journal.
+    pub fn apply(self: *Projection, record: journal.Record) !void {
+        try self.validate(record);
+
+        if (self.findByEventId(record.event_id)) |index| {
+            const previous = self.entries.items[index].record;
             const owned = try cloneRecord(self.allocator, record);
             deinitRecord(self.allocator, previous);
             self.entries.items[index].record = owned;

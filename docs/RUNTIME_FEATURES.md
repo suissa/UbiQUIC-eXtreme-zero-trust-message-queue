@@ -13,6 +13,7 @@ The runtime feature registry is the source of truth for feature selection. Profi
 - `shard_migration.Migration`: adapter capability contract and a fenced, checkpointed migration state machine requiring verification before cutover.
 - `settlement_journal.Store`: bounded append-only JSONL snapshots with FNV-1a checksums, file sync after each append, replay in order, and safe ignoring of an incomplete trailing line.
 - `settlement_projection.Projection`: rebuilds the latest event state and idempotency lookup from journal snapshots, checks globally monotonic sequence numbers, rejects cross-event idempotency collisions, and exposes claimability/settled queries after recovery.
+- `durable_settlement.Coordinator`: requires journal replay before writes, appends+syncs each state snapshot before updating the projection, and provides `commitSettlementAndAck` (durable SETTLED before JetStream `+ACK`) plus `ackIfAlreadySettled` for redelivery after a lost ACK.
 
 ## Configuration precedence and overrides
 
@@ -34,7 +35,7 @@ Cluster membership accepts a boolean authenticated-join decision from its caller
 
 The shard migration state machine is storage-neutral. It does not claim that PostgreSQL, MongoDB, SQLite, or document stores share the same consistency guarantees, and it does not implement their wire/database drivers.
 
-The settlement journal and projection are a persistence/recovery foundation, not yet a write-through broker integration. A caller must append each state transition before acknowledging it and enforce fencing at the side-effect boundary. The projection rejects out-of-order records and key collisions, but the broker must still coordinate publication and journal writes atomically or through an outbox. JSONL is bounded by a configured byte limit; retention/compaction, outbox coordination, atomic payload-store transactions, and exhaustive crash-injection tests remain follow-up work. FNV-1a detects accidental corruption but is not a cryptographic integrity mechanism.
+The settlement journal, projection, and coordinator provide a write-through settlement primitive for JetStream: after the Action effect returns, the caller persists and syncs SETTLED before sending `+ACK`. If ACK fails, redelivery can be checked against the recovered idempotency projection and ACKed without rerunning the effect. The application must check the durable idempotency key before executing effects, and enforce fencing at the effect boundary. This does not make an arbitrary external side effect atomic with the journal; external effects still need their own idempotency or transactional outbox/inbox. Publication and journal writes are not yet atomic. JSONL is bounded by a configured byte limit; retention/compaction, outbox coordination, atomic payload-store transactions, and exhaustive crash-injection tests remain follow-up work. FNV-1a detects accidental corruption but is not a cryptographic integrity mechanism.
 
 ## Validation
 
