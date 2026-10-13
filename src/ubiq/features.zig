@@ -41,11 +41,12 @@ pub const Config = struct {
         for (self.enabled) |feature| {
             switch (feature) {
                 .supervisor => if (!self.isEnabled(.ubiq)) return error.MissingDependency,
-                .mtls, .dpop, .replay_guard => {
+                .mtls, .replay_guard => {
                     if (!self.isEnabled(.crypto)) return error.MissingDependency;
                 },
                 .dpop => {
-                    if (!self.isEnabled(.transport_http)) return error.MissingDependency;
+                    if (!self.isEnabled(.crypto) or !self.isEnabled(.transport_http))
+                        return error.MissingDependency;
                 },
                 .sharder => {
                     if (!self.isEnabled(.ubiq) or !self.isEnabled(.supervisor))
