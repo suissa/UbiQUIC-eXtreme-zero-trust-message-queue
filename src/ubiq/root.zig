@@ -1,4 +1,7 @@
 pub const features = @import("features.zig");
+pub const runtime_config = @import("runtime_config.zig");
+pub const supervisor = @import("supervisor.zig");
+pub const transports = @import("transports.zig");
 pub const event = @import("event.zig");
 pub const capability = @import("capability.zig");
 pub const delivery = @import("delivery.zig");
@@ -23,6 +26,9 @@ pub const jetstream = @import("jetstream.zig");
 
 test {
     _ = features;
+    _ = runtime_config;
+    _ = supervisor;
+    _ = transports;
     _ = event;
     _ = capability;
     _ = delivery;
