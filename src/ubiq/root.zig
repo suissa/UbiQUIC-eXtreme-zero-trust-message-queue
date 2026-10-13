@@ -1,5 +1,6 @@
 pub const features = @import("features.zig");
 pub const runtime_config = @import("runtime_config.zig");
+pub const dependency_graph = @import("dependency_graph.zig");
 pub const supervisor = @import("supervisor.zig");
 pub const transports = @import("transports.zig");
 pub const event = @import("event.zig");
@@ -27,6 +28,7 @@ pub const jetstream = @import("jetstream.zig");
 test {
     _ = features;
     _ = runtime_config;
+    _ = dependency_graph;
     _ = supervisor;
     _ = transports;
     _ = event;
