@@ -69,10 +69,24 @@ pub const ValidationError = error{MissingDependency};
 const minimal = [_]Feature{ .ubiq, .supervisor };
 const secure = [_]Feature{ .ubiq, .supervisor, .crypto, .mtls, .replay_guard };
 const full = [_]Feature{
-    .ubiq, .supervisor, .crypto, .mtls, .dpop, .replay_guard,
-    .sharder, .event_sourcing, .projection, .self_healing,
-    .predictive_self_healing, .shadow_simulation, .human_in_the_healing_loop,
-    .transport_quic, .transport_http, .transport_grpc, .transport_websocket, .transport_nats,
+    .ubiq,
+    .supervisor,
+    .crypto,
+    .mtls,
+    .dpop,
+    .replay_guard,
+    .sharder,
+    .event_sourcing,
+    .projection,
+    .self_healing,
+    .predictive_self_healing,
+    .shadow_simulation,
+    .human_in_the_healing_loop,
+    .transport_quic,
+    .transport_http,
+    .transport_grpc,
+    .transport_websocket,
+    .transport_nats,
 };
 
 /// Returns profile defaults. Callers must copy these into an immutable
