@@ -142,6 +142,15 @@ test "durable coordinator requires replay before writes and rebuilds settled ind
             .event_id = "evt-1",
             .canonical_event = "Financial.createInvoice.request",
             .idempotency_key = "idem-1",
+            .delivery_state = .leased,
+            .lease_owner = "worker-a",
+            .lease_deadline_ms = 100,
+        });
+        _ = try first.persist(.{
+            .sequence = 0,
+            .event_id = "evt-1",
+            .canonical_event = "Financial.createInvoice.request",
+            .idempotency_key = "idem-1",
             .delivery_state = .settled_ok,
         });
         try std.testing.expect(first.isSettled("idem-1"));
@@ -149,7 +158,7 @@ test "durable coordinator requires replay before writes and rebuilds settled ind
 
     var restarted = Coordinator.init(allocator, &store);
     defer restarted.deinit();
-    try std.testing.expectEqual(@as(usize, 2), try restarted.recover());
+    try std.testing.expectEqual(@as(usize, 3), try restarted.recover());
     try std.testing.expect(restarted.isSettled("idem-1"));
     try std.testing.expectError(error.InvalidTransition, restarted.persist(.{
         .sequence = 0,
