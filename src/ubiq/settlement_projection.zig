@@ -15,9 +15,7 @@ pub const Projection = struct {
     entries: std.ArrayList(Entry) = .empty,
     last_sequence: u64 = 0,
 
-    const Entry = struct {
-        record: journal.Record,
-    };
+    const Entry = struct { record: journal.Record };
 
     pub fn init(allocator: std.mem.Allocator) Projection {
         return .{ .allocator = allocator };
@@ -29,24 +27,23 @@ pub const Projection = struct {
         self.* = undefined;
     }
 
-    /// Replay all complete journal records in order. Sequence numbers are
-    /// global and must be strictly increasing; corrupted ordering fails closed.
+    /// Replays complete journal records in order; ordering errors fail closed.
     pub fn recover(self: *Projection, store: *const journal.Store) !usize {
         return store.replay(self, replayVisitor);
     }
 
-    /// Apply one already validated journal snapshot. Used by the replay
-    /// callback and available to a future write-through broker coordinator.
+    /// Apply a validated snapshot. A future write-through coordinator can use
+    /// this only after the corresponding record has been durably appended.
     pub fn apply(self: *Projection, record: journal.Record) !void {
         if (record.sequence <= self.last_sequence) return error.SequenceRegression;
 
-        if (findByIdempotencyKey(self, record.idempotency_key)) |existing_index| {
+        if (self.findByIdempotencyKey(record.idempotency_key)) |existing_index| {
             const existing = self.entries.items[existing_index].record;
             if (!std.mem.eql(u8, existing.event_id, record.event_id))
                 return error.IdempotencyConflict;
         }
 
-        if (findByEventId(self, record.event_id)) |index| {
+        if (self.findByEventId(record.event_id)) |index| {
             const previous = self.entries.items[index].record;
             if (!allowed(previous.delivery_state, record.delivery_state))
                 return error.InvalidTransition;
@@ -77,9 +74,8 @@ pub const Projection = struct {
         return null;
     }
 
-    /// A received record remains unsettled. Expired leases and published
-    /// records are eligible for a new claim; settled idempotency keys remain
-    /// present so callers can suppress duplicate business effects.
+    /// RECEIVED remains unsettled. An expired lease becomes claimable at its
+    /// deadline; settled records remain in the index for idempotency checks.
     pub fn isClaimable(self: *const Projection, event_id: []const u8, now_ms: u64) bool {
         const index = self.findByEventId(event_id) orelse return false;
         const record = self.entries.items[index].record;
@@ -118,35 +114,44 @@ fn cloneOptional(allocator: std.mem.Allocator, value: ?[]const u8) !?[]const u8 
 }
 
 fn cloneRecord(allocator: std.mem.Allocator, source: journal.Record) !journal.Record {
-    errdefer {}
-    return .{
+    var result: journal.Record = .{
         .sequence = source.sequence,
-        .event_id = try allocator.dupe(u8, source.event_id),
-        .canonical_event = try allocator.dupe(u8, source.canonical_event),
-        .idempotency_key = try allocator.dupe(u8, source.idempotency_key),
-        .payload_reference = try allocator.dupe(u8, source.payload_reference),
-        .payload = try allocator.dupe(u8, source.payload),
+        .event_id = "",
+        .canonical_event = "",
+        .idempotency_key = "",
+        .payload_reference = "",
+        .payload = "",
         .delivery_state = source.delivery_state,
-        .lease_owner = try cloneOptional(allocator, source.lease_owner),
+        .lease_owner = null,
         .lease_deadline_ms = source.lease_deadline_ms,
         .attempt = source.attempt,
         .fencing_generation = source.fencing_generation,
         .created_at_ms = source.created_at_ms,
         .updated_at_ms = source.updated_at_ms,
-        .correlation_id = try allocator.dupe(u8, source.correlation_id),
-        .causation_id = try allocator.dupe(u8, source.causation_id),
+        .correlation_id = "",
+        .causation_id = "",
     };
+    errdefer deinitRecord(allocator, result);
+    result.event_id = try allocator.dupe(u8, source.event_id);
+    result.canonical_event = try allocator.dupe(u8, source.canonical_event);
+    result.idempotency_key = try allocator.dupe(u8, source.idempotency_key);
+    result.payload_reference = try allocator.dupe(u8, source.payload_reference);
+    result.payload = try allocator.dupe(u8, source.payload);
+    result.lease_owner = try cloneOptional(allocator, source.lease_owner);
+    result.correlation_id = try allocator.dupe(u8, source.correlation_id);
+    result.causation_id = try allocator.dupe(u8, source.causation_id);
+    return result;
 }
 
 fn deinitRecord(allocator: std.mem.Allocator, record: journal.Record) void {
-    allocator.free(record.event_id);
-    allocator.free(record.canonical_event);
-    allocator.free(record.idempotency_key);
-    allocator.free(record.payload_reference);
-    allocator.free(record.payload);
+    if (record.event_id.len > 0) allocator.free(record.event_id);
+    if (record.canonical_event.len > 0) allocator.free(record.canonical_event);
+    if (record.idempotency_key.len > 0) allocator.free(record.idempotency_key);
+    if (record.payload_reference.len > 0) allocator.free(record.payload_reference);
+    if (record.payload.len > 0) allocator.free(record.payload);
     if (record.lease_owner) |owner| allocator.free(owner);
-    allocator.free(record.correlation_id);
-    allocator.free(record.causation_id);
+    if (record.correlation_id.len > 0) allocator.free(record.correlation_id);
+    if (record.causation_id.len > 0) allocator.free(record.causation_id);
 }
 
 test "recovery projection keeps received unsettled and expires leases by deadline" {
@@ -154,20 +159,21 @@ test "recovery projection keeps received unsettled and expires leases by deadlin
     defer projection.deinit();
 
     try projection.apply(.{
-        .sequence = 1,
-        .event_id = "evt-1",
+        .sequence = 1, .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1",
-        .delivery_state = .published,
+        .idempotency_key = "idem-1", .delivery_state = .published,
     });
     try projection.apply(.{
-        .sequence = 2,
-        .event_id = "evt-1",
+        .sequence = 2, .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1",
-        .delivery_state = .received,
-        .lease_owner = "worker-a",
-        .lease_deadline_ms = 100,
+        .idempotency_key = "idem-1", .delivery_state = .leased,
+        .lease_owner = "worker-a", .lease_deadline_ms = 100,
+    });
+    try projection.apply(.{
+        .sequence = 3, .event_id = "evt-1",
+        .canonical_event = "Financial.createInvoice.request",
+        .idempotency_key = "idem-1", .delivery_state = .received,
+        .lease_owner = "worker-a", .lease_deadline_ms = 100,
     });
 
     try std.testing.expect(!projection.isSettled("idem-1"));
@@ -175,11 +181,9 @@ test "recovery projection keeps received unsettled and expires leases by deadlin
     try std.testing.expect(projection.isClaimable("evt-1", 100));
 
     try projection.apply(.{
-        .sequence = 3,
-        .event_id = "evt-1",
+        .sequence = 4, .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1",
-        .delivery_state = .settled_ok,
+        .idempotency_key = "idem-1", .delivery_state = .settled_ok,
     });
     try std.testing.expect(projection.isSettled("idem-1"));
     try std.testing.expect(!projection.isClaimable("evt-1", 1000));
@@ -188,40 +192,30 @@ test "recovery projection keeps received unsettled and expires leases by deadlin
 test "recovery projection rejects duplicate idempotency key for another event" {
     var projection = Projection.init(std.testing.allocator);
     defer projection.deinit();
-
     try projection.apply(.{
-        .sequence = 1,
-        .event_id = "evt-1",
+        .sequence = 1, .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "shared-key",
-        .delivery_state = .published,
+        .idempotency_key = "shared-key", .delivery_state = .published,
     });
     try std.testing.expectError(error.IdempotencyConflict, projection.apply(.{
-        .sequence = 2,
-        .event_id = "evt-2",
+        .sequence = 2, .event_id = "evt-2",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "shared-key",
-        .delivery_state = .published,
+        .idempotency_key = "shared-key", .delivery_state = .published,
     }));
 }
 
 test "recovery projection rejects non-monotonic sequence" {
     var projection = Projection.init(std.testing.allocator);
     defer projection.deinit();
-
     try projection.apply(.{
-        .sequence = 4,
-        .event_id = "evt-1",
+        .sequence = 4, .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1",
-        .delivery_state = .published,
+        .idempotency_key = "idem-1", .delivery_state = .published,
     });
     try std.testing.expectError(error.SequenceRegression, projection.apply(.{
-        .sequence = 3,
-        .event_id = "evt-1",
+        .sequence = 3, .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1",
-        .delivery_state = .leased,
+        .idempotency_key = "idem-1", .delivery_state = .leased,
         .lease_owner = "worker-a",
     }));
 }
