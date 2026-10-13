@@ -1,5 +1,6 @@
 const std = @import("std");
 const features = @import("features.zig");
+const dependency_graph = @import("dependency_graph.zig");
 
 pub const ConfigError = error{
     InvalidJson,
@@ -122,6 +123,10 @@ pub fn loadJson(
         loaded.deinit();
         return error.InvalidFeatures;
     };
+    dependency_graph.validate(loaded.view(), &dependency_graph.default_edges) catch {
+        loaded.deinit();
+        return error.InvalidFeatures;
+    };
     return loaded;
 }
 
@@ -174,5 +179,15 @@ test "JSON loader frees selected features when an override is invalid" {
         allocator,
         "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\"]}",
         &.{.{ .name = "UBIQ_FEATURES", .value = "ubiq,not-a-feature" }},
+    ));
+}
+
+
+test "JSON loader validates the canonical feature dependency graph" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.InvalidFeatures, loadJson(
+        allocator,
+        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"crypto\",\"transport_nats\"]}",
+        &.{},
     ));
 }
