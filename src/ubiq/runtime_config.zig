@@ -56,6 +56,8 @@ pub fn loadJson(
 
     const feature_value = object.get("enabled");
     var selected: []const features.Feature = features.defaults(profile);
+    var selected_owned = false;
+    errdefer if (selected_owned) allocator.free(@constCast(selected));
     if (feature_value) |value| {
         if (value != .array) return error.InvalidFeatures;
         const result = try allocator.alloc(features.Feature, value.array.items.len);
@@ -66,6 +68,7 @@ pub fn loadJson(
                 return error.InvalidFeature;
         }
         selected = result;
+        selected_owned = true;
     }
 
     // Overrides are deliberately supplied by the host. This keeps environment
@@ -104,19 +107,15 @@ pub fn loadJson(
                 return error.InvalidOverride;
             index += 1;
         }
-        if (feature_value) |value| {
-            if (value == .array) {
-                // The JSON-owned selection is no longer needed once overridden.
-                allocator.free(@constCast(selected));
-            }
-        }
+        if (selected_owned) allocator.free(@constCast(selected));
         selected = result;
+        selected_owned = true;
     }
 
     const enabled = try allocator.dupe(features.Feature, selected);
-    if (feature_override != null or (feature_value != null and feature_value.? == .array)) {
-        // selected may point to a temporary allocation created above.
+    if (selected_owned) {
         allocator.free(@constCast(selected));
+        selected_owned = false;
     }
     var loaded = Loaded{ .allocator = allocator, .profile = profile, .enabled = enabled };
     loaded.view().validate() catch {
@@ -148,5 +147,32 @@ test "JSON loader rejects unknown features and invalid dependencies" {
         allocator,
         "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"transport_nats\"]}",
         &.{},
+    ));
+}
+
+test "feature override safely replaces profile defaults without freeing static storage" {
+    const allocator = std.testing.allocator;
+    var loaded = try loadJson(allocator, "{\"profile\":\"minimal\"}", &.{
+        .{ .name = "UBIQ_PROFILE", .value = "secure" },
+        .{ .name = "UBIQ_FEATURES", .value = "ubiq,supervisor,crypto,mtls,replay_guard" },
+    });
+
+    defer loaded.deinit();
+    try std.testing.expectEqual(features.Profile.secure, loaded.profile);
+    try std.testing.expect(loaded.view().isEnabled(.crypto));
+    try loaded.view().validate();
+}
+
+test "JSON loader frees selected features when an override is invalid" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.InvalidOverride, loadJson(
+        allocator,
+        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\"]}",
+        &.{.{ .name = "UBIQ_PROFILE", .value = "not-a-profile" }},
+    ));
+    try std.testing.expectError(error.InvalidOverride, loadJson(
+        allocator,
+        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\"]}",
+        &.{.{ .name = "UBIQ_FEATURES", .value = "ubiq,not-a-feature" }},
     ));
 }
