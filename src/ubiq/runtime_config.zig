@@ -162,3 +162,17 @@ test "feature override safely replaces profile defaults without freeing static s
     try std.testing.expect(loaded.view().isEnabled(.crypto));
     try loaded.view().validate();
 }
+
+test "JSON loader frees selected features when an override is invalid" {
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.InvalidOverride, loadJson(
+        allocator,
+        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\"]}",
+        &.{.{ .name = "UBIQ_PROFILE", .value = "not-a-profile" }},
+    ));
+    try std.testing.expectError(error.InvalidOverride, loadJson(
+        allocator,
+        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\"]}",
+        &.{.{ .name = "UBIQ_FEATURES", .value = "ubiq,not-a-feature" }},
+    ));
+}
