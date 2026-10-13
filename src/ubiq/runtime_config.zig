@@ -57,6 +57,7 @@ pub fn loadJson(
     const feature_value = object.get("enabled");
     var selected: []const features.Feature = features.defaults(profile);
     var selected_owned = false;
+    errdefer if (selected_owned) allocator.free(@constCast(selected));
     if (feature_value) |value| {
         if (value != .array) return error.InvalidFeatures;
         const result = try allocator.alloc(features.Feature, value.array.items.len);
@@ -112,7 +113,10 @@ pub fn loadJson(
     }
 
     const enabled = try allocator.dupe(features.Feature, selected);
-    if (selected_owned) allocator.free(@constCast(selected));
+    if (selected_owned) {
+        allocator.free(@constCast(selected));
+        selected_owned = false;
+    }
     var loaded = Loaded{ .allocator = allocator, .profile = profile, .enabled = enabled };
     loaded.view().validate() catch {
         loaded.deinit();
