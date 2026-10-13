@@ -1,3 +1,4 @@
+pub const features = @import("features.zig");
 pub const event = @import("event.zig");
 pub const capability = @import("capability.zig");
 pub const delivery = @import("delivery.zig");
@@ -21,6 +22,7 @@ pub const nats_client = @import("nats_client.zig");
 pub const jetstream = @import("jetstream.zig");
 
 test {
+    _ = features;
     _ = event;
     _ = capability;
     _ = delivery;
