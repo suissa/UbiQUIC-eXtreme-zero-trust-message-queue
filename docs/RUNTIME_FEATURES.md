@@ -1,50 +1,45 @@
 # Runtime feature configuration
 
-This document defines the first implementation slice for issues #12–#17. Feature selection is a control-plane concern and must not change canonical event identity or silently weaken route guarantees.
+The runtime feature registry is the source of truth for feature selection. Profiles are presets; they do not imply that every optional production driver or cryptographic provider is present.
 
-## Profiles
+## Runtime APIs
 
-- `minimal`: UbiQ core and bounded in-memory execution only.
-- `secure`: minimal plus crypto policy, mTLS, replay guard, and supervisor. A production crypto provider is still required; a profile does not manufacture cryptographic capability.
-- `full`: enables all features that are compiled in and whose dependencies validate. It does not imply that every optional wire driver is implemented or installed.
-- `custom`: explicit feature map; unspecified feature values must be rejected or resolved by documented defaults, never guessed.
+- `features.Config`: typed profile and enabled-feature view with fail-closed dependency validation.
+- `runtime_config.loadJson(allocator, source, overrides)`: JSON configuration parser, profile defaults, host-supplied overrides, and startup validation. The caller owns the returned `Loaded` value and must call `deinit()`.
+- `dependency_graph.validate(config, edges)`: required/optional/conflicting dependency edges and cycle detection.
+- `supervisor.Tree`: policy/lifecycle state for root, security, transport, sharder, and healing supervisors, including health, restart, and failure counters.
+- `transports.Registry`: feature-gated lifecycle slots for QUIC, HTTP, gRPC, WebSocket, and NATS, including publish/failure/reconnect counters.
+- `cluster_control.Membership(N)`: authenticated-join gate, membership epochs, heartbeat expiry, and fencing-generation validation.
+- `shard_migration.Migration`: adapter capability contract and a fenced, checkpointed migration state machine requiring verification before cutover.
 
-## Dependency policy
+## Configuration precedence and overrides
 
-The runtime must validate the complete configuration before starting listeners or accepting events. At minimum:
+The JSON loader accepts `profile` and optional `enabled` feature-name array. If `enabled` is omitted, the selected profile defaults are used. Host code supplies overrides as values; no ambient process environment is read by the pure loader.
 
-- Any remote transport requires `ubiq`, `supervisor`, and `crypto`.
-- HTTP DPoP requires the HTTP transport and a configured proof verifier.
-- mTLS requires a configured identity/trust provider.
-- Replay Guard requires the security/crypto verification path.
-- Predictive self-healing requires self-healing.
-- Projection requires event sourcing.
-- Sharding requires UbiQ and supervisor control.
-- Disabling a transport must be a normal startup state, not a startup error.
+Supported override names:
+- `UBIQ_PROFILE`: one of `minimal`, `secure`, `full`, `custom`.
+- `UBIQ_FEATURES`: comma-separated feature names, replacing the selected feature list.
 
-Conflicts and cycles must be detected from the declared dependency graph before bootstrap. Diagnostics should report the feature and violated edge; do not log secrets or credential material.
+Unknown override names, unknown feature names, malformed JSON, and invalid feature combinations fail closed.
 
-## Configuration sources and precedence
+## Format support and operational boundaries
 
-Recommended precedence, lowest to highest:
+JSON is implemented. YAML and TOML decoders remain outstanding; they must decode into the same typed contract rather than be guessed or silently accepted as JSON.
 
-1. built-in profile defaults;
-2. configuration file;
-3. environment overrides;
-4. explicit command-line overrides (if enabled by the host application).
+Supervisor and transport modules are lifecycle registries, not process managers or network drivers. They do not start OS processes or open listeners. Production health must be driven by the real adapter's successful health signal.
 
-The resolved configuration is immutable after bootstrap. YAML, TOML and JSON are input formats; they must resolve to the same typed representation. Parsing and schema validation must happen before runtime components are constructed.
+Cluster membership accepts a boolean authenticated-join decision from its caller; it does not implement cryptographic authentication itself. The fencing generation is an in-process control-plane model and must be persisted/consensus-backed before use as a distributed production authority.
 
-## Environment variables
+The shard migration state machine is storage-neutral. It does not claim that PostgreSQL, MongoDB, SQLite, or document stores share the same consistency guarantees, and it does not implement their wire/database drivers.
 
-Use the prefix `UBIQ_FEATURE__`, uppercase feature names, and double underscores for nested paths. For example:
+## Validation
 
-- `UBIQ_FEATURE__PROFILE=secure`
-- `UBIQ_FEATURE__FEATURES__TRANSPORT_NATS=true`
-- `UBIQ_FEATURE__FEATURES__DPOP=false`
+The repository CI pins Zig 0.16.0. Run:
 
-Boolean values are limited to `true` and `false` (case-insensitive). Invalid values fail closed with a path-specific diagnostic.
-
-## Status and scope
-
-The JSON Schema in `schemas/runtime-features.schema.json` is the canonical initial input schema. It is not, by itself, a YAML/TOML parser or a production runtime loader. The Zig feature registry must remain the typed authority, and generated language SDKs should consume the same schema rather than reimplementing feature semantics.
+```sh
+zig fmt --check build.zig src
+zig build
+zig build test
+zig build run
+zig build nats-integration
+```
