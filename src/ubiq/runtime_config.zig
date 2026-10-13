@@ -56,6 +56,7 @@ pub fn loadJson(
 
     const feature_value = object.get("enabled");
     var selected: []const features.Feature = features.defaults(profile);
+    var selected_owned = false;
     if (feature_value) |value| {
         if (value != .array) return error.InvalidFeatures;
         const result = try allocator.alloc(features.Feature, value.array.items.len);
@@ -66,6 +67,7 @@ pub fn loadJson(
                 return error.InvalidFeature;
         }
         selected = result;
+        selected_owned = true;
     }
 
     // Overrides are deliberately supplied by the host. This keeps environment
@@ -104,20 +106,13 @@ pub fn loadJson(
                 return error.InvalidOverride;
             index += 1;
         }
-        if (feature_value) |value| {
-            if (value == .array) {
-                // The JSON-owned selection is no longer needed once overridden.
-                allocator.free(@constCast(selected));
-            }
-        }
+        if (selected_owned) allocator.free(@constCast(selected));
         selected = result;
+        selected_owned = true;
     }
 
     const enabled = try allocator.dupe(features.Feature, selected);
-    if (feature_override != null or (feature_value != null and feature_value.? == .array)) {
-        // selected may point to a temporary allocation created above.
-        allocator.free(@constCast(selected));
-    }
+    if (selected_owned) allocator.free(@constCast(selected));
     var loaded = Loaded{ .allocator = allocator, .profile = profile, .enabled = enabled };
     loaded.view().validate() catch {
         loaded.deinit();
