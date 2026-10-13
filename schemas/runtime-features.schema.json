@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ubiq.dev/schemas/runtime-features.schema.json",
+  "title": "UbiQ Runtime Feature Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile", "features"],
+  "properties": {
+    "profile": { "enum": ["minimal", "secure", "full", "custom"] },
+    "features": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" },
+      "properties": {
+        "ubiq": { "type": "boolean" },
+        "supervisor": { "type": "boolean" },
+        "mtls": { "type": "boolean" },
+        "dpop": { "type": "boolean" },
+        "replay_guard": { "type": "boolean" },
+        "sharder": { "type": "boolean" },
+        "event_sourcing": { "type": "boolean" },
+        "crypto": { "type": "boolean" },
+        "projection": { "type": "boolean" },
+        "self_healing": { "type": "boolean" },
+        "predictive_self_healing": { "type": "boolean" },
+        "shadow_simulation": { "type": "boolean" },
+        "human_in_the_healing_loop": { "type": "boolean" },
+        "transport_quic": { "type": "boolean" },
+        "transport_http": { "type": "boolean" },
+        "transport_grpc": { "type": "boolean" },
+        "transport_websocket": { "type": "boolean" },
+        "transport_nats": { "type": "boolean" }
+      }
+    },
+    "environment_overrides": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}
