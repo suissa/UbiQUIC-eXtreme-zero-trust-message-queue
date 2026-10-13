@@ -1,0 +1,117 @@
+const std = @import("std");
+
+pub const Profile = enum { minimal, secure, full, custom };
+
+pub const Feature = enum {
+    ubiq,
+    supervisor,
+    mtls,
+    dpop,
+    replay_guard,
+    sharder,
+    event_sourcing,
+    crypto,
+    projection,
+    self_healing,
+    predictive_self_healing,
+    shadow_simulation,
+    human_in_the_healing_loop,
+    transport_quic,
+    transport_http,
+    transport_grpc,
+    transport_websocket,
+    transport_nats,
+};
+
+pub const Config = struct {
+    profile: Profile,
+    enabled: []const Feature,
+
+    pub fn isEnabled(self: Config, feature: Feature) bool {
+        for (self.enabled) |enabled| {
+            if (enabled == feature) return true;
+        }
+        return false;
+    }
+
+    /// Validates dependencies before any listener or worker is started.
+    /// This deliberately validates declarations only; it does not claim that
+    /// a compiled transport or a production crypto provider exists.
+    pub fn validate(self: Config) ValidationError!void {
+        for (self.enabled) |feature| {
+            switch (feature) {
+                .supervisor => if (!self.isEnabled(.ubiq)) return error.MissingDependency,
+                .mtls, .dpop, .replay_guard => {
+                    if (!self.isEnabled(.crypto)) return error.MissingDependency;
+                },
+                .dpop => {
+                    if (!self.isEnabled(.transport_http)) return error.MissingDependency;
+                },
+                .sharder => {
+                    if (!self.isEnabled(.ubiq) or !self.isEnabled(.supervisor))
+                        return error.MissingDependency;
+                },
+                .projection => if (!self.isEnabled(.event_sourcing)) return error.MissingDependency,
+                .predictive_self_healing => if (!self.isEnabled(.self_healing)) return error.MissingDependency,
+                .transport_quic, .transport_http, .transport_grpc, .transport_websocket, .transport_nats => {
+                    if (!self.isEnabled(.ubiq) or !self.isEnabled(.supervisor) or !self.isEnabled(.crypto))
+                        return error.MissingDependency;
+                },
+                else => {},
+            }
+        }
+    }
+};
+
+pub const ValidationError = error{MissingDependency};
+
+const minimal = [_]Feature{ .ubiq, .supervisor };
+const secure = [_]Feature{ .ubiq, .supervisor, .crypto, .mtls, .replay_guard };
+const full = [_]Feature{
+    .ubiq, .supervisor, .crypto, .mtls, .dpop, .replay_guard,
+    .sharder, .event_sourcing, .projection, .self_healing,
+    .predictive_self_healing, .shadow_simulation, .human_in_the_healing_loop,
+    .transport_quic, .transport_http, .transport_grpc, .transport_websocket, .transport_nats,
+};
+
+/// Returns profile defaults. Callers must copy these into an immutable
+/// resolved configuration before applying file/environment overrides.
+pub fn defaults(profile: Profile) []const Feature {
+    return switch (profile) {
+        .minimal => &minimal,
+        .secure => &secure,
+        .full => &full,
+        .custom => &.{},
+    };
+}
+
+test "minimal profile has only core features" {
+    const config = Config{ .profile = .minimal, .enabled = defaults(.minimal) };
+    try config.validate();
+    try std.testing.expect(config.isEnabled(.ubiq));
+    try std.testing.expect(!config.isEnabled(.crypto));
+}
+
+test "remote transport cannot start without security dependencies" {
+    const config = Config{
+        .profile = .custom,
+        .enabled = &.{ .ubiq, .transport_nats },
+    };
+    try std.testing.expectError(error.MissingDependency, config.validate());
+}
+
+test "DPoP is restricted to HTTP transport" {
+    const config = Config{
+        .profile = .custom,
+        .enabled = &.{ .ubiq, .supervisor, .crypto, .dpop },
+    };
+    try std.testing.expectError(error.MissingDependency, config.validate());
+}
+
+test "projection requires event sourcing" {
+    const config = Config{
+        .profile = .custom,
+        .enabled = &.{ .ubiq, .projection },
+    };
+    try std.testing.expectError(error.MissingDependency, config.validate());
+}
