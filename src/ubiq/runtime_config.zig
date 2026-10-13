@@ -145,3 +145,15 @@ test "JSON loader rejects unknown features and invalid dependencies" {
         &.{},
     ));
 }
+
+test "feature override safely replaces profile defaults without freeing static storage" {
+    const allocator = std.testing.allocator;
+    var loaded = try loadJson(allocator, "{\\"profile\\":\\"minimal\\"}", &.{
+        .{ .name = "UBIQ_PROFILE", .value = "secure" },
+        .{ .name = "UBIQ_FEATURES", .value = "ubiq,supervisor,crypto,mtls,replay_guard" },
+    });
+    defer loaded.deinit();
+    try std.testing.expectEqual(features.Profile.secure, loaded.profile);
+    try std.testing.expect(loaded.view().isEnabled(.crypto));
+    try loaded.view().validate();
+}
