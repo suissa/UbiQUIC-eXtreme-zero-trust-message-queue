@@ -15,7 +15,9 @@ pub const Projection = struct {
     entries: std.ArrayList(Entry) = .empty,
     last_sequence: u64 = 0,
 
-    const Entry = struct { record: journal.Record };
+    const Entry = struct {
+        record: journal.Record,
+    };
 
     pub fn init(allocator: std.mem.Allocator) Projection {
         return .{ .allocator = allocator };
@@ -159,21 +161,29 @@ test "recovery projection keeps received unsettled and expires leases by deadlin
     defer projection.deinit();
 
     try projection.apply(.{
-        .sequence = 1, .event_id = "evt-1",
+        .sequence = 1,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1", .delivery_state = .published,
+        .idempotency_key = "idem-1",
+        .delivery_state = .published,
     });
     try projection.apply(.{
-        .sequence = 2, .event_id = "evt-1",
+        .sequence = 2,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1", .delivery_state = .leased,
-        .lease_owner = "worker-a", .lease_deadline_ms = 100,
+        .idempotency_key = "idem-1",
+        .delivery_state = .leased,
+        .lease_owner = "worker-a",
+        .lease_deadline_ms = 100,
     });
     try projection.apply(.{
-        .sequence = 3, .event_id = "evt-1",
+        .sequence = 3,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1", .delivery_state = .received,
-        .lease_owner = "worker-a", .lease_deadline_ms = 100,
+        .idempotency_key = "idem-1",
+        .delivery_state = .received,
+        .lease_owner = "worker-a",
+        .lease_deadline_ms = 100,
     });
 
     try std.testing.expect(!projection.isSettled("idem-1"));
@@ -181,9 +191,11 @@ test "recovery projection keeps received unsettled and expires leases by deadlin
     try std.testing.expect(projection.isClaimable("evt-1", 100));
 
     try projection.apply(.{
-        .sequence = 4, .event_id = "evt-1",
+        .sequence = 4,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1", .delivery_state = .settled_ok,
+        .idempotency_key = "idem-1",
+        .delivery_state = .settled_ok,
     });
     try std.testing.expect(projection.isSettled("idem-1"));
     try std.testing.expect(!projection.isClaimable("evt-1", 1000));
@@ -193,14 +205,18 @@ test "recovery projection rejects duplicate idempotency key for another event" {
     var projection = Projection.init(std.testing.allocator);
     defer projection.deinit();
     try projection.apply(.{
-        .sequence = 1, .event_id = "evt-1",
+        .sequence = 1,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "shared-key", .delivery_state = .published,
+        .idempotency_key = "shared-key",
+        .delivery_state = .published,
     });
     try std.testing.expectError(error.IdempotencyConflict, projection.apply(.{
-        .sequence = 2, .event_id = "evt-2",
+        .sequence = 2,
+        .event_id = "evt-2",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "shared-key", .delivery_state = .published,
+        .idempotency_key = "shared-key",
+        .delivery_state = .published,
     }));
 }
 
@@ -208,14 +224,18 @@ test "recovery projection rejects non-monotonic sequence" {
     var projection = Projection.init(std.testing.allocator);
     defer projection.deinit();
     try projection.apply(.{
-        .sequence = 4, .event_id = "evt-1",
+        .sequence = 4,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1", .delivery_state = .published,
+        .idempotency_key = "idem-1",
+        .delivery_state = .published,
     });
     try std.testing.expectError(error.SequenceRegression, projection.apply(.{
-        .sequence = 3, .event_id = "evt-1",
+        .sequence = 3,
+        .event_id = "evt-1",
         .canonical_event = "Financial.createInvoice.request",
-        .idempotency_key = "idem-1", .delivery_state = .leased,
+        .idempotency_key = "idem-1",
+        .delivery_state = .leased,
         .lease_owner = "worker-a",
     }));
 }
