@@ -8,6 +8,8 @@ pub const capability = @import("capability.zig");
 pub const delivery = @import("delivery.zig");
 pub const settlement = @import("settlement.zig");
 pub const settlement_journal = @import("settlement_journal.zig");
+pub const settlement_projection = @import("settlement_projection.zig");
+pub const durable_settlement = @import("durable_settlement.zig");
 pub const security = @import("security.zig");
 pub const security_runtime = @import("security_runtime.zig");
 pub const mapping = @import("mapping.zig");
@@ -39,6 +41,8 @@ test {
     _ = delivery;
     _ = settlement;
     _ = settlement_journal;
+    _ = settlement_projection;
+    _ = durable_settlement;
     _ = security;
     _ = security_runtime;
     _ = mapping;
