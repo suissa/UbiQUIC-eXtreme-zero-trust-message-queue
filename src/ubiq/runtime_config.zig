@@ -183,11 +183,11 @@ test "JSON loader frees selected features when an override is invalid" {
 }
 
 
-test "JSON loader validates the canonical feature dependency graph" {
+test "JSON loader rejects duplicate feature declarations" {
     const allocator = std.testing.allocator;
     try std.testing.expectError(error.InvalidFeatures, loadJson(
         allocator,
-        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"crypto\",\"transport_nats\"]}",
+        "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\",\"ubiq\"]}",
         &.{},
     ));
 }
