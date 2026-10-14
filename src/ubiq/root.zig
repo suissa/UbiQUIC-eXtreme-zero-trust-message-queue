@@ -3,6 +3,7 @@ pub const runtime_config = @import("runtime_config.zig");
 pub const dependency_graph = @import("dependency_graph.zig");
 pub const supervisor = @import("supervisor.zig");
 pub const transports = @import("transports.zig");
+pub const transport_config = @import("transport_config.zig");
 pub const event = @import("event.zig");
 pub const capability = @import("capability.zig");
 pub const delivery = @import("delivery.zig");
@@ -33,6 +34,7 @@ test {
     _ = dependency_graph;
     _ = supervisor;
     _ = transports;
+    _ = transport_config;
     _ = event;
     _ = capability;
     _ = delivery;
