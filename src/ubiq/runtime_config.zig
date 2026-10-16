@@ -251,7 +251,8 @@ fn unquote(value: []const u8) ?[]const u8 {
     if (value.len >= 2 and ((value[0] == '"' and value[value.len - 1] == '"') or
         (value[0] == '\'' and value[value.len - 1] == '\'')))
         return value[1 .. value.len - 1];
-    if (value.len != 0 and std.mem.indexOfAny(u8, value, " \t\r\n\\"'[]{}:,") == null)
+    if (value.len != 0 and std.mem.indexOfAny(u8, value, " \t\r\n'[]{}:,") == null and
+        std.mem.indexOfScalar(u8, value, '"') == null)
         return value;
     return null;
 }
