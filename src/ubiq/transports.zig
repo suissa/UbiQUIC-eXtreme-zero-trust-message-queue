@@ -117,7 +117,6 @@ test "disabled transports do not start and enabled transports expose metrics" {
     try std.testing.expectEqual(@as(u64, 1), metrics.reconnects);
 }
 
-
 test "transport registry obeys per-transport selection even when runtime feature is enabled" {
     const runtime = features.Config{ .profile = .full, .enabled = features.defaults(.full) };
     const selection = transport_config.Config{ .settings = &.{
