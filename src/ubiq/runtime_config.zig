@@ -133,7 +133,6 @@ pub fn loadJson(
     return loaded;
 }
 
-
 /// Loads the intentionally small TOML subset supported by the runtime contract:
 /// top-level `profile = "secure"` and `enabled = ["ubiq", "supervisor"]`.
 /// Unknown keys and duplicate declarations fail closed.
