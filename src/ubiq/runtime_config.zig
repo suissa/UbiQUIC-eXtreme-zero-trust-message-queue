@@ -148,14 +148,14 @@ pub fn loadToml(
     var profile_seen = false;
     var enabled_seen = false;
 
-    var lines = std.mem.splitScalar(u8, source, '\\n');
+    var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw_line| {
         const line = trimComment(raw_line, '#');
-        const trimmed = std.mem.trim(u8, line, " \\t\\r");
+        const trimmed = std.mem.trim(u8, line, " \t\r");
         if (trimmed.len == 0) continue;
         const equal = std.mem.indexOfScalar(u8, trimmed, '=') orelse return error.InvalidToml;
-        const key = std.mem.trim(u8, trimmed[0..equal], " \\t");
-        const value = std.mem.trim(u8, trimmed[equal + 1 ..], " \\t");
+        const key = std.mem.trim(u8, trimmed[0..equal], " \t");
+        const value = std.mem.trim(u8, trimmed[equal + 1 ..], " \t");
         if (std.mem.eql(u8, key, "profile")) {
             if (profile_seen) return error.InvalidToml;
             profile = unquote(value) orelse return error.InvalidToml;
@@ -164,11 +164,11 @@ pub fn loadToml(
             if (enabled_seen or value.len < 2 or value[0] != '[' or value[value.len - 1] != ']')
                 return error.InvalidToml;
             enabled_seen = true;
-            const inside = std.mem.trim(u8, value[1 .. value.len - 1], " \\t");
+            const inside = std.mem.trim(u8, value[1 .. value.len - 1], " \t");
             if (inside.len != 0) {
                 var values = std.mem.splitScalar(u8, inside, ',');
                 while (values.next()) |item| {
-                    const token = unquote(std.mem.trim(u8, item, " \\t")) orelse return error.InvalidToml;
+                    const token = unquote(std.mem.trim(u8, item, " \t")) orelse return error.InvalidToml;
                     try appendToken(allocator, &enabled, token);
                 }
             }
@@ -196,21 +196,21 @@ pub fn loadYaml(
     var enabled_seen = false;
     var in_enabled_list = false;
 
-    var lines = std.mem.splitScalar(u8, source, '\\n');
+    var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |raw_line| {
         const no_comment = trimComment(raw_line, '#');
-        const trimmed = std.mem.trim(u8, no_comment, " \\t\\r");
+        const trimmed = std.mem.trim(u8, no_comment, " \t\r");
         if (trimmed.len == 0) continue;
         if (std.mem.startsWith(u8, trimmed, "-")) {
             if (!in_enabled_list or trimmed.len < 2 or trimmed[1] != ' ') return error.InvalidYaml;
-            const token = unquote(std.mem.trim(u8, trimmed[2..], " \\t")) orelse return error.InvalidYaml;
+            const token = unquote(std.mem.trim(u8, trimmed[2..], " \t")) orelse return error.InvalidYaml;
             try appendToken(allocator, &enabled, token);
             continue;
         }
 
         const colon = std.mem.indexOfScalar(u8, trimmed, ':') orelse return error.InvalidYaml;
-        const key = std.mem.trim(u8, trimmed[0..colon], " \\t");
-        const value = std.mem.trim(u8, trimmed[colon + 1 ..], " \\t");
+        const key = std.mem.trim(u8, trimmed[0..colon], " \t");
+        const value = std.mem.trim(u8, trimmed[colon + 1 ..], " \t");
         if (std.mem.eql(u8, key, "profile")) {
             if (profile_seen or value.len == 0) return error.InvalidYaml;
             profile = unquote(value) orelse return error.InvalidYaml;
@@ -223,11 +223,11 @@ pub fn loadYaml(
                 in_enabled_list = true;
             } else {
                 if (value.len < 2 or value[0] != '[' or value[value.len - 1] != ']') return error.InvalidYaml;
-                const inside = std.mem.trim(u8, value[1 .. value.len - 1], " \\t");
+                const inside = std.mem.trim(u8, value[1 .. value.len - 1], " \t");
                 if (inside.len != 0) {
                     var values = std.mem.splitScalar(u8, inside, ',');
                     while (values.next()) |item| {
-                        const token = unquote(std.mem.trim(u8, item, " \\t")) orelse return error.InvalidYaml;
+                        const token = unquote(std.mem.trim(u8, item, " \t")) orelse return error.InvalidYaml;
                         try appendToken(allocator, &enabled, token);
                     }
                 }
@@ -249,9 +249,9 @@ fn trimComment(line: []const u8, marker: u8) []const u8 {
 
 fn unquote(value: []const u8) ?[]const u8 {
     if (value.len >= 2 and ((value[0] == '"' and value[value.len - 1] == '"') or
-        (value[0] == '\\'' and value[value.len - 1] == '\\'')))
+        (value[0] == '\'' and value[value.len - 1] == '\'')))
         return value[1 .. value.len - 1];
-    if (value.len != 0 and std.mem.indexOfAny(u8, value, " \\t\\r\\n\\\"'[]{}:,") == null)
+    if (value.len != 0 and std.mem.indexOfAny(u8, value, " \t\r\n\\"'[]{}:,") == null)
         return value;
     return null;
 }
@@ -276,13 +276,13 @@ fn encodeJson(
     try output.appendSlice(allocator, "{");
     var has_field = false;
     if (profile) |name| {
-        try output.appendSlice(allocator, "\\"profile\\":");
+        try output.appendSlice(allocator, "\"profile\":");
         try appendJsonToken(allocator, &output, name);
         has_field = true;
     }
     if (enabled_seen) {
         if (has_field) try output.appendSlice(allocator, ",");
-        try output.appendSlice(allocator, "\\"enabled\\":[");
+        try output.appendSlice(allocator, "\"enabled\":[");
         for (enabled, 0..) |name, index| {
             if (index != 0) try output.appendSlice(allocator, ",");
             try appendJsonToken(allocator, &output, name);
@@ -302,7 +302,7 @@ fn appendJsonToken(allocator: std.mem.Allocator, output: *std.ArrayList(u8), tok
 test "TOML loader accepts the supported strict subset and applies overrides" {
     const allocator = std.testing.allocator;
     var loaded = try loadToml(allocator,
-        "profile = \\"secure\\"\\nenabled = [\\"ubiq\\", \\"supervisor\\", \\"crypto\\", \\"mtls\\", \\"replay_guard\\"]",
+        "profile = \"secure\"\nenabled = [\"ubiq\", \"supervisor\", \"crypto\", \"mtls\", \"replay_guard\"]",
         &.{},
     );
     defer loaded.deinit();
@@ -313,13 +313,13 @@ test "TOML loader accepts the supported strict subset and applies overrides" {
 test "YAML loader accepts a block feature list and rejects unknown keys" {
     const allocator = std.testing.allocator;
     var loaded = try loadYaml(allocator,
-        "profile: secure\\nenabled:\\n  - ubiq\\n  - supervisor\\n  - crypto\\n  - mtls\\n  - replay_guard",
+        "profile: secure\nenabled:\n  - ubiq\n  - supervisor\n  - crypto\n  - mtls\n  - replay_guard",
         &.{},
     );
     defer loaded.deinit();
     try std.testing.expectEqual(features.Profile.secure, loaded.profile);
     try loaded.view().validate();
-    try std.testing.expectError(error.UnknownConfigKey, loadYaml(allocator, "profile: minimal\\nother: value", &.{}));
+    try std.testing.expectError(error.UnknownConfigKey, loadYaml(allocator, "profile: minimal\nother: value", &.{}));
 }
 
 test "JSON loader resolves defaults and applies explicit environment overrides" {
