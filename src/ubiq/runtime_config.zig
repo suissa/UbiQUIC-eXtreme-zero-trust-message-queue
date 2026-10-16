@@ -301,7 +301,8 @@ fn appendJsonToken(allocator: std.mem.Allocator, output: *std.ArrayList(u8), tok
 
 test "TOML loader accepts the supported strict subset and applies overrides" {
     const allocator = std.testing.allocator;
-    var loaded = try loadToml(allocator,
+    var loaded = try loadToml(
+        allocator,
         "profile = \"secure\"\nenabled = [\"ubiq\", \"supervisor\", \"crypto\", \"mtls\", \"replay_guard\"]",
         &.{},
     );
@@ -312,7 +313,8 @@ test "TOML loader accepts the supported strict subset and applies overrides" {
 
 test "YAML loader accepts a block feature list and rejects unknown keys" {
     const allocator = std.testing.allocator;
-    var loaded = try loadYaml(allocator,
+    var loaded = try loadYaml(
+        allocator,
         "profile: secure\nenabled:\n  - ubiq\n  - supervisor\n  - crypto\n  - mtls\n  - replay_guard",
         &.{},
     );
