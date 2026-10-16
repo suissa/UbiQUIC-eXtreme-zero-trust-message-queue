@@ -182,7 +182,6 @@ test "JSON loader frees selected features when an override is invalid" {
     ));
 }
 
-
 test "JSON loader rejects duplicate feature declarations" {
     const allocator = std.testing.allocator;
     try std.testing.expectError(error.InvalidFeatures, loadJson(
