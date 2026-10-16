@@ -124,7 +124,7 @@ test "transport registry obeys per-transport selection even when runtime feature
         .{ .kind = .nats, .enabled = false },
     } };
     var registry = Registry{};
-    registry.initializeWithConfig(runtime, selection);
+    try registry.initializeWithConfig(runtime, selection);
     try registry.start(.http);
     try std.testing.expectError(error.FeatureDisabled, registry.start(.nats));
 }
