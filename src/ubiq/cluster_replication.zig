@@ -1,6 +1,4 @@
 const std = @import("std");
-const cluster_control = @import("cluster_control.zig");
-
 pub const Error = error{
     QueueFull,
     InvalidRecord,
@@ -39,8 +37,7 @@ pub fn ReplicaQueue(comptime capacity: usize) type {
 
         pub fn enqueue(self: *Self, record: ReplicaRecord, current_epoch: u64, current_fence: u64) Error!usize {
             if (record.event_id.len == 0 or record.source_node.len == 0 or
-                record.target_node.len == 0 or record.source_node.len == record.target_node.len and
-                std.mem.eql(u8, record.source_node, record.target_node))
+                record.target_node.len == 0 or std.mem.eql(u8, record.source_node, record.target_node))
                 return error.InvalidRecord;
             if (record.membership_epoch != current_epoch) return error.StaleEpoch;
             if (record.fencing_generation != current_fence) return error.StaleFence;
