@@ -117,7 +117,6 @@ test "supervisor cannot enable security tree without crypto" {
     try std.testing.expectError(error.MissingDependency, tree.configure(.security, true, .one_for_one, config));
 }
 
-
 test "supervisor runtime applies declarative tree and strategies" {
     const runtime = features.Config{ .profile = .full, .enabled = features.defaults(.full) };
     const config = supervisor_config.Config{ .settings = &supervisor_config.default_settings };
