@@ -158,7 +158,6 @@ test "replica receipt cannot be marked applied before delivery" {
     try std.testing.expectError(error.InvalidRecord, queue.markApplied(index, 1, 1));
 }
 
-
 test "same source sequence can fan out to distinct replica targets" {
     var queue = ReplicaQueue(4){};
     const first = ReplicaRecord{
