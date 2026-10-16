@@ -1,5 +1,6 @@
 const std = @import("std");
 const features = @import("features.zig");
+const supervisor_config = @import("supervisor_config.zig");
 
 pub const Strategy = enum { one_for_one, rest_for_one, one_for_all };
 pub const Kind = enum { root, security, transport, sharder, healing };
@@ -14,7 +15,7 @@ pub const Node = struct {
     failure_count: u64 = 0,
 };
 
-pub const SupervisorError = error{ MissingDependency, DuplicateSupervisor, InvalidTransition };
+pub const SupervisorError = error{ MissingDependency, DuplicateSupervisor, InvalidTransition, InvalidConfiguration };
 
 pub const Tree = struct {
     nodes: [5]Node = .{
@@ -24,6 +25,25 @@ pub const Tree = struct {
         .{ .kind = .sharder, .enabled = false },
         .{ .kind = .healing, .enabled = false },
     },
+
+    pub fn configureFromConfig(self: *Tree, config: supervisor_config.Config, runtime: features.Config) SupervisorError!void {
+        config.validate(runtime) catch return error.InvalidConfiguration;
+        for (config.settings) |setting| {
+            const kind: Kind = switch (setting.kind) {
+                .root => .root,
+                .security => .security,
+                .transport => .transport,
+                .sharder => .sharder,
+                .healing => .healing,
+            };
+            const strategy: Strategy = switch (setting.restart) {
+                .one_for_one => .one_for_one,
+                .rest_for_one => .rest_for_one,
+                .one_for_all => .one_for_all,
+            };
+            try self.configure(kind, setting.enabled, strategy, runtime);
+        }
+    }
 
     pub fn configure(self: *Tree, kind: Kind, enabled: bool, strategy: Strategy, config: features.Config) SupervisorError!void {
         if (kind != .root and enabled and !config.isEnabled(.supervisor))
@@ -95,4 +115,20 @@ test "supervisor cannot enable security tree without crypto" {
     var tree = Tree{};
     const config = features.Config{ .profile = .minimal, .enabled = features.defaults(.minimal) };
     try std.testing.expectError(error.MissingDependency, tree.configure(.security, true, .one_for_one, config));
+}
+
+test "supervisor runtime applies declarative tree and strategies" {
+    const runtime = features.Config{ .profile = .full, .enabled = features.defaults(.full) };
+    const config = supervisor_config.Config{ .settings = &supervisor_config.default_settings };
+    var tree = Tree{};
+    try tree.configureFromConfig(config, runtime);
+    try std.testing.expectEqual(Strategy.one_for_all, tree.nodes[@intFromEnum(Kind.root)].strategy);
+    try std.testing.expectEqual(Health.disabled, tree.nodes[@intFromEnum(Kind.sharder)].health);
+}
+
+test "supervisor runtime rejects configuration with missing runtime dependencies" {
+    const runtime = features.Config{ .profile = .minimal, .enabled = features.defaults(.minimal) };
+    const config = supervisor_config.Config{ .settings = &supervisor_config.default_settings };
+    var tree = Tree{};
+    try std.testing.expectError(error.InvalidConfiguration, tree.configureFromConfig(config, runtime));
 }
