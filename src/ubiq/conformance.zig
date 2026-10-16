@@ -53,8 +53,17 @@ test "cross-protocol conformance preserves every canonical envelope field" {
 
     // Physical transport addresses must never become semantic event identity.
     const transports = [_]@import("capability.zig").Transport{
-        .memory, .tcp, .quic, .nats, .nats_jetstream, .kafka, .redpanda,
-        .rabbitmq, .rest, .websocket, .sse,
+        .memory,
+        .tcp,
+        .quic,
+        .nats,
+        .nats_jetstream,
+        .kafka,
+        .redpanda,
+        .rabbitmq,
+        .rest,
+        .websocket,
+        .sse,
     };
     for (transports) |transport| {
         const address = mapping.mapCanonical(transport, original.event.name);
@@ -63,8 +72,14 @@ test "cross-protocol conformance preserves every canonical envelope field" {
 }
 
 test "cross-protocol conformance rejects malformed REST identity" {
-    try std.testing.expectError(error.InvalidRoute, http.eventFromTarget("/v1/events/Financial.createInvoice.request?alias=1"));
-    try std.testing.expectError(error.InvalidCanonicalName, http.eventFromTarget("/v1/events/Financial/createInvoice/request"));
+    try std.testing.expectError(
+        error.InvalidRoute,
+        http.eventFromTarget("/v1/events/Financial.createInvoice.request?alias=1"),
+    );
+    try std.testing.expectError(
+        error.InvalidCanonicalName,
+        http.eventFromTarget("/v1/events/Financial/createInvoice/request"),
+    );
 }
 
 test "cross-protocol conformance rejects corrupted binary envelope" {
