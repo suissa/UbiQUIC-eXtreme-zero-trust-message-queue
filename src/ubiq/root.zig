@@ -22,6 +22,7 @@ pub const contracts = @import("contracts.zig");
 pub const cluster = @import("cluster.zig");
 pub const cluster_control = @import("cluster_control.zig");
 pub const shard_migration = @import("shard_migration.zig");
+pub const shard_adapter_contract = @import("shard_adapter_contract.zig");
 pub const lock = @import("lock.zig");
 pub const wire = @import("wire.zig");
 pub const tcp_binding = @import("tcp_binding.zig");
@@ -57,6 +58,7 @@ test {
     _ = cluster;
     _ = cluster_control;
     _ = shard_migration;
+    _ = shard_adapter_contract;
     _ = lock;
     _ = wire;
     _ = tcp_binding;
