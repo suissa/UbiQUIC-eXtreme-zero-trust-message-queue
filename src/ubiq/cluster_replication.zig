@@ -41,7 +41,7 @@ pub fn ReplicaQueue(comptime capacity: usize) type {
                 return error.InvalidRecord;
             if (record.membership_epoch != current_epoch) return error.StaleEpoch;
             if (record.fencing_generation != current_fence) return error.StaleFence;
-            for (self.entries[0..self.len], 0..) |entry, index| {
+            for (self.entries[0..self.len]) |entry| {
                 if (std.mem.eql(u8, entry.record.event_id, record.event_id) and
                     std.mem.eql(u8, entry.record.target_node, record.target_node))
                     return error.DuplicateRecord;
