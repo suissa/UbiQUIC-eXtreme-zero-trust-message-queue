@@ -28,7 +28,6 @@ pub fn ReplicaQueue(comptime capacity: usize) type {
         const Self = @This();
         entries: [capacity]Entry = undefined,
         len: usize = 0,
-        last_sequence: u64 = 0,
 
         const Entry = struct {
             record: ReplicaRecord,
@@ -45,12 +44,14 @@ pub fn ReplicaQueue(comptime capacity: usize) type {
                 if (std.mem.eql(u8, entry.record.event_id, record.event_id) and
                     std.mem.eql(u8, entry.record.target_node, record.target_node))
                     return error.DuplicateRecord;
+                if (std.mem.eql(u8, entry.record.target_node, record.target_node) and
+                    record.sequence <= entry.record.sequence)
+                    return error.SequenceRegression;
             }
             if (self.len == capacity) return error.QueueFull;
             if (record.sequence <= self.last_sequence) return error.SequenceRegression;
             self.entries[self.len] = .{ .record = record };
             self.len += 1;
-            self.last_sequence = record.sequence;
             return self.len - 1;
         }
 
@@ -155,4 +156,38 @@ test "replica receipt cannot be marked applied before delivery" {
         .payload = "payload",
     }, 1, 1);
     try std.testing.expectError(error.InvalidRecord, queue.markApplied(index, 1, 1));
+}
+
+
+test "same source sequence can fan out to distinct replica targets" {
+    var queue = ReplicaQueue(4){};
+    const first = ReplicaRecord{
+        .event_id = "evt-1",
+        .source_node = "node-a",
+        .target_node = "node-b",
+        .membership_epoch = 3,
+        .fencing_generation = 8,
+        .sequence = 10,
+        .payload = "payload",
+    };
+    _ = try queue.enqueue(first, 3, 8);
+    _ = try queue.enqueue(.{
+        .event_id = "evt-1",
+        .source_node = "node-a",
+        .target_node = "node-c",
+        .membership_epoch = 3,
+        .fencing_generation = 8,
+        .sequence = 10,
+        .payload = "payload",
+    }, 3, 8);
+    try std.testing.expectEqual(@as(usize, 2), queue.len);
+    try std.testing.expectError(error.SequenceRegression, queue.enqueue(.{
+        .event_id = "evt-2",
+        .source_node = "node-a",
+        .target_node = "node-b",
+        .membership_epoch = 3,
+        .fencing_generation = 8,
+        .sequence = 9,
+        .payload = "payload",
+    }, 3, 8));
 }
