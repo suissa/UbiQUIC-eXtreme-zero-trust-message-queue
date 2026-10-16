@@ -1,5 +1,6 @@
 const std = @import("std");
 const features = @import("features.zig");
+const transport_config = @import("transport_config.zig");
 
 pub const Kind = enum { quic, http, grpc, websocket, nats };
 pub const State = enum { disabled, stopped, starting, healthy, degraded, unhealthy };
@@ -12,7 +13,7 @@ pub const Entry = struct {
     reconnects: u64 = 0,
 };
 
-pub const TransportError = error{ FeatureDisabled, InvalidTransition };
+pub const TransportError = error{ FeatureDisabled, InvalidTransition, InvalidConfiguration };
 
 pub const Registry = struct {
     entries: [5]Entry = .{
@@ -26,6 +27,20 @@ pub const Registry = struct {
     pub fn initialize(self: *Registry, config: features.Config) void {
         for (&self.entries) |*entry| {
             entry.state = if (config.isEnabled(featureFor(entry.kind))) .stopped else .disabled;
+        }
+    }
+
+    pub fn initializeWithConfig(self: *Registry, runtime: features.Config, selection: transport_config.Config) TransportError!void {
+        selection.validate(runtime) catch return error.InvalidConfiguration;
+        for (&self.entries) |*entry| {
+            const selected_kind: transport_config.Kind = switch (entry.kind) {
+                .quic => .quic,
+                .http => .http,
+                .grpc => .grpc,
+                .websocket => .websocket,
+                .nats => .nats,
+            };
+            entry.state = if (runtime.isEnabled(featureFor(entry.kind)) and selection.isEnabled(selected_kind)) .stopped else .disabled;
         }
     }
 
@@ -100,4 +115,26 @@ test "disabled transports do not start and enabled transports expose metrics" {
     try std.testing.expectEqual(@as(u64, 1), metrics.published);
     try std.testing.expectEqual(@as(u64, 1), metrics.failed);
     try std.testing.expectEqual(@as(u64, 1), metrics.reconnects);
+}
+
+
+test "transport registry obeys per-transport selection even when runtime feature is enabled" {
+    const runtime = features.Config{ .profile = .full, .enabled = features.defaults(.full) };
+    const selection = transport_config.Config{ .settings = &.{
+        .{ .kind = .http, .enabled = true },
+        .{ .kind = .nats, .enabled = false },
+    } };
+    var registry = Registry{};
+    registry.initializeWithConfig(runtime, selection);
+    try registry.start(.http);
+    try std.testing.expectError(error.FeatureDisabled, registry.start(.nats));
+}
+
+test "transport registry rejects selection that violates runtime feature registry" {
+    const runtime = features.Config{ .profile = .minimal, .enabled = features.defaults(.minimal) };
+    const selection = transport_config.Config{ .settings = &.{
+        .{ .kind = .nats, .enabled = true },
+    } };
+    var registry = Registry{};
+    try std.testing.expectError(error.InvalidConfiguration, registry.initializeWithConfig(runtime, selection));
 }
