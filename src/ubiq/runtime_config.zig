@@ -24,10 +24,10 @@ pub const Override = struct {
 pub const Loaded = struct {
     allocator: std.mem.Allocator,
     profile: features.Profile,
-    enabled: []features.Feature,
+    enabled: []const features.Feature,
 
     pub fn deinit(self: *Loaded) void {
-        self.allocator.free(self.enabled);
+        self.allocator.free(@constCast(self.enabled));
         self.* = undefined;
     }
 
@@ -35,6 +35,23 @@ pub const Loaded = struct {
         return .{ .profile = self.profile, .enabled = self.enabled };
     }
 };
+
+pub const Format = enum { json, yaml, toml };
+
+/// Single entry point for runtime bootstrap. Format selection is explicit so
+/// malformed or unsupported input is never guessed or silently coerced.
+pub fn load(
+    allocator: std.mem.Allocator,
+    format: Format,
+    source: []const u8,
+    overrides: []const Override,
+) ConfigError!Loaded {
+    return switch (format) {
+        .json => loadJson(allocator, source, overrides),
+        .yaml => loadYaml(allocator, source, overrides),
+        .toml => loadToml(allocator, source, overrides),
+    };
+}
 
 /// Loads the stable JSON subset of the runtime configuration contract.
 /// YAML/TOML must be decoded by an explicit format adapter before this API;
@@ -383,4 +400,12 @@ test "JSON loader rejects duplicate feature declarations" {
         "{\"profile\":\"custom\",\"enabled\":[\"ubiq\",\"supervisor\",\"ubiq\"]}",
         &.{},
     ));
+}
+
+test "single runtime loader dispatches explicit formats and exposes a read-only feature slice" {
+    const allocator = std.testing.allocator;
+    var loaded = try load(allocator, .json, "{\"profile\":\"minimal\"}", &.{});
+    defer loaded.deinit();
+    try std.testing.expectEqual(features.Profile.minimal, loaded.profile);
+    try loaded.view().validate();
 }
