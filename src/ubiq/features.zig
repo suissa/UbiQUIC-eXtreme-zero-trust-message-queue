@@ -34,11 +34,16 @@ pub const Config = struct {
         return false;
     }
 
-    /// Validates dependencies before any listener or worker is started.
-    /// This deliberately validates declarations only; it does not claim that
-    /// a compiled transport or a production crypto provider exists.
+    /// Validates the resolved feature set before any listener or worker starts.
+    /// This validates declarations only; it does not claim that a compiled
+    /// transport or production crypto provider exists.
     pub fn validate(self: Config) ValidationError!void {
-        for (self.enabled) |feature| {
+        for (self.enabled, 0..) |feature, index| {
+            // Duplicate declarations are ambiguous configuration, not harmless
+            // aliases: reject them before dependency resolution/bootstrap.
+            for (self.enabled[0..index]) |previous| {
+                if (previous == feature) return error.DuplicateFeature;
+            }
             switch (feature) {
                 .supervisor => if (!self.isEnabled(.ubiq)) return error.MissingDependency,
                 .mtls, .replay_guard => {
@@ -64,7 +69,7 @@ pub const Config = struct {
     }
 };
 
-pub const ValidationError = error{MissingDependency};
+pub const ValidationError = error{ MissingDependency, DuplicateFeature };
 
 const minimal = [_]Feature{ .ubiq, .supervisor };
 const secure = [_]Feature{ .ubiq, .supervisor, .crypto, .mtls, .replay_guard };
@@ -89,8 +94,8 @@ const full = [_]Feature{
     .transport_nats,
 };
 
-/// Returns profile defaults. Callers must copy these into an immutable
-/// resolved configuration before applying file/environment overrides.
+/// Returns profile defaults. Callers should copy these into an owned resolved
+/// configuration before applying file/environment overrides.
 pub fn defaults(profile: Profile) []const Feature {
     return switch (profile) {
         .minimal => &minimal,
@@ -129,4 +134,12 @@ test "projection requires event sourcing" {
         .enabled = &.{ .ubiq, .projection },
     };
     try std.testing.expectError(error.MissingDependency, config.validate());
+}
+
+test "duplicate feature declarations are rejected" {
+    const config = Config{
+        .profile = .custom,
+        .enabled = &.{ .ubiq, .supervisor, .ubiq },
+    };
+    try std.testing.expectError(error.DuplicateFeature, config.validate());
 }
