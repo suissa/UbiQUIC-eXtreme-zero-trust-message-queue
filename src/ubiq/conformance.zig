@@ -16,7 +16,7 @@ fn fixture() !event.Envelope {
         .causation_id = "conformance-causation",
         .idempotency_key = "conformance-idempotency",
         .schema_id = "Financial.createInvoice.request@1",
-        .payload = "{\\"invoice_id\\":\\"INV-01\\"}",
+        .payload = "{}",
         .guarantee = .processed,
         .created_at_ms = 1_791_446_400_000,
     };
