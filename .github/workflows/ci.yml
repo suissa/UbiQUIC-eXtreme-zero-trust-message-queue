@@ -19,7 +19,7 @@ jobs:
       - name: Version
         run: zig version
       - name: Format
-        run: zig fmt build.zig src && git diff -- src/ubiq/runtime_config.zig
+        run: zig fmt --check build.zig src
       - name: Build
         run: zig build
       - name: Test
