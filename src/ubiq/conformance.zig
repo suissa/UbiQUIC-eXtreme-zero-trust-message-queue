@@ -70,7 +70,7 @@ test "cross-protocol conformance rejects malformed REST identity" {
 test "cross-protocol conformance rejects corrupted binary envelope" {
     var wire_buffer: [4096]u8 = undefined;
     const encoded = try wire.encode(try fixture(), &wire_buffer);
-    try std.testing.expectError(error.InvalidMagic, wire.decode("not-a-wire-frame"));
+    try std.testing.expectError(error.InvalidFrame, wire.decode("not-a-wire-frame"));
     try std.testing.expectError(error.InvalidFrame, wire.decode(encoded[0 .. encoded.len - 1]));
 }
 
