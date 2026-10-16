@@ -34,6 +34,7 @@ pub const sse_binding = @import("sse_binding.zig");
 pub const nats_protocol = @import("nats_protocol.zig");
 pub const nats_client = @import("nats_client.zig");
 pub const jetstream = @import("jetstream.zig");
+pub const conformance = @import("conformance.zig");
 
 test {
     _ = features;
@@ -72,4 +73,5 @@ test {
     _ = nats_protocol;
     _ = nats_client;
     _ = jetstream;
+    _ = conformance;
 }
