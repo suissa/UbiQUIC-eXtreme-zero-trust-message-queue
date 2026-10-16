@@ -49,7 +49,6 @@ pub fn ReplicaQueue(comptime capacity: usize) type {
                     return error.SequenceRegression;
             }
             if (self.len == capacity) return error.QueueFull;
-            if (record.sequence <= self.last_sequence) return error.SequenceRegression;
             self.entries[self.len] = .{ .record = record };
             self.len += 1;
             return self.len - 1;
